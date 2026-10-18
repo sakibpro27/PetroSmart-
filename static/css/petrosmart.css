@@ -184,7 +184,17 @@ h1, h2, h3, h4, h5, h6 { color: var(--ps-text); font-weight: 600; letter-spacing
 .sidebar-nav .bi { font-size: 1.1rem; color: #fff; }
 .sidebar-nav .nav-link.active .bi { color: var(--ps-forest); }
 
+/* Phones and tablets: the menu slides in over the page and must scroll on its own. */
+@media (max-width: 991.98px) {
+  .app-sidebar.offcanvas-lg {
+    overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+  }
+  .app-sidebar .sidebar-nav { flex-shrink: 0; }
+}
+
 @media (min-width: 992px) {
+  /* Bootstrap makes .offcanvas-lg transparent on large screens with !important; keep the green. */
+  .app-sidebar.offcanvas-lg { background-color: var(--ps-forest) !important; }
   .app-sidebar {
     position: fixed; inset: 0 auto 0 0; width: var(--ps-sidebar-width);
     overflow-y: auto; z-index: 1030;

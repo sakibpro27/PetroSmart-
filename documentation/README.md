@@ -4,9 +4,11 @@ This folder holds the project's documentation, kept in three separate parts:
 
 | Folder | Audience | Contents |
 |---|---|---|
-| `academic/` | College examiners and project guide | The T.Y. B.Sc. Computer Science project report, one Markdown file per chapter, plus the final DOCX. |
-| `user-manual/` | Dealers and managers using PetroSmart | Step-by-step workflows, written without technical terms. |
-| `diagrams/` | Used by the report | Editable text sources for the UML, DFD and ER diagrams, plus the PNG images made from them. |
+| `academic/` | College examiners and project guide | The T.Y. B.Sc. Computer Science project report, one Markdown file per chapter, plus the built `PetroSmart-Project-Report.pdf`. |
+| `user-manual/` | Dealers and managers using PetroSmart | Step-by-step workflows, written without technical terms (`README.md` and a PDF copy). |
+| `screenshots/` | Used by the report | Screen images shown in Chapter 4. |
+| `tools/` | Whoever updates the report | Scripts that generate the data dictionary, the test results, the diagrams and the PDFs (see `CHECKLIST.md`). |
+| `diagrams/` | Used by the report | Editable Mermaid text of the UML, DFD and ER diagrams. The PDF draws the same diagrams from `tools/diagrams.py`. |
 
 Developer documentation (setup, code rules, backup) is in the main
 [`README.md`](../README.md) at the project root, not here.
@@ -26,6 +28,6 @@ structure is in [`academic/OUTLINE.md`](academic/OUTLINE.md).
 4. **Placeholders for personal details.** Write them as `[STUDENT NAME]`,
    `[ROLL NUMBER]` and so on, until the real details are provided.
 5. **Diagrams as editable text.** Each diagram has a text source in
-   `diagrams/` so it can be changed later, and a rendered PNG for the report.
+   `tools/diagrams.py` (exported as Mermaid to `diagrams/`) so it can be changed later.
    Every diagram gets a figure number and caption, e.g. *Figure 3.1: Level 0 DFD*.
 6. **Screenshots come from the running application**, never from mock-ups.

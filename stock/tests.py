@@ -82,6 +82,18 @@ class StockSheetTests(StockTestCase):
         self.assertEqual(rows[self.t2]["calculated"], D("8850"))
         self.assertEqual(rows[self.t1]["total_delivery"], D("40"))
 
+    def test_decimal_litres_add_up_exactly(self):
+        # SQLite adds decimals as floating point (927.20 + 1034.60 = 1961.8000000000002), which once
+        # made the stock sheet fail with "no more than 12 digits". Totals must be exact to the 0.01 L.
+        self.receive(self.t1, "4000")
+        self.card(readings={"N1": ("1387.20", "0"), "N2": ("1000.35", "0")})
+        self.card(self.evening, readings={"N1": ("2421.80", "0"), "N2": ("1000.70", "0")})
+        rows = {row["tank"]: row for row in services.tank_rows(self.outlet, TODAY)}
+        self.assertEqual(str(rows[self.t1]["total_delivery"]), "1961.80")
+        self.assertEqual(str(services.book_stock(self.t1)["stock"]), "3038.20")
+        sheet = self.save_stock({self.t1: "3038.20", self.t2: "4999.30"})
+        self.assertEqual(self.stock_line(sheet, self.t1).variation, D("0"))
+
     def test_saved_in_one_step_without_approval(self):
         sheet = self.save_stock({self.t1: "1000", self.t2: "5000"})
         self.assertFalse(hasattr(sheet, "status"))

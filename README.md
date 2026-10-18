@@ -11,13 +11,13 @@ separate tenant; within a business there are exactly two roles, **Dealer** and
 | `config/` | Django settings and root URLs. All secrets come from `.env`. |
 | `accounts/` | Custom `User` model (Dealer / Manager / platform admin), login forms. |
 | `tenants/` | `Business` (tenant), `Outlet`, `SubscriptionPlan`, tenant isolation helpers. |
-| `audit/` | Append-only `AuditLog`: logins, approvals, corrections, edits, deletions and exports. |
+| `audit/` | Append-only `AuditLog`: logins, saves, corrections, edits, deletions and exports. |
 | `core/` | Dashboard (`dashboard.py`), `seed_demo` command, shared form/view building blocks (`forms.py`, `crud.py`), INR number filters. |
 | `station/` | Outlet set-up: fuel products (MS/HSD), selling prices, dispensers, tanks, nozzles, shifts. |
 | `sales/` | Daily Sales: formulas (`calculations.py`), workflow rules (`services.py`), summaries (`reports.py`). |
 | `stock/` | Fuel receipts and daily tank stock reconciliation (`calculations.py`, `services.py`). |
 | `purchases/` | Suppliers and fuel purchase invoices, allocated to tanks. |
-| `finance/` | Payment methods, shift collections, credit customers and ledgers, expenses, operational summary. |
+| `finance/` | Payment methods, credit customers and ledgers, credit bills, expenses, operational summary. |
 | `reports/` | Report definitions, plus Excel (openpyxl) and PDF (ReportLab) export. |
 | `operations/` | Lubricant/shop inventory, employees and attendance, reminders, audit log screen. |
 | `templates/`, `static/` | Pages, CSS theme tokens (`static/css/tokens.css`), JS (entry previews, charts). |

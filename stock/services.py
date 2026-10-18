@@ -20,6 +20,12 @@ from station.models import Tank
 from .models import StockLine, StockSheet, TankReceipt
 
 ZERO = Decimal("0")
+LITRE = Decimal("0.01")
+
+
+def _litres(value):
+    """A summed litre figure, exact to 0.01 L (SQLite adds decimals as floating point)."""
+    return (value or ZERO).quantize(LITRE)
 
 
 def stock_sheets_for(user):
@@ -70,9 +76,9 @@ def movements(tank, day):
         )
     delivered = sales_lines_for_tank(tank, day).aggregate(delivery=Sum("total_delivery"), testing=Sum("testing_litres"))
     return {
-        "fuel_received": receipts.aggregate(total=Sum("litres"))["total"] or ZERO,
-        "total_delivery": delivered["delivery"] or ZERO,
-        "testing_litres": delivered["testing"] or ZERO,
+        "fuel_received": _litres(receipts.aggregate(total=Sum("litres"))["total"]),
+        "total_delivery": _litres(delivered["delivery"]),
+        "testing_litres": _litres(delivered["testing"]),
     }
 
 
@@ -96,13 +102,13 @@ def book_stock(tank):
     if last is not None:
         receipts = receipts.filter(received_on__gt=last.sheet.business_date)
         lines = lines.filter(sheet__business_date__gt=last.sheet.business_date)
-    received = receipts.aggregate(total=Sum("litres"))["total"] or ZERO
+    received = _litres(receipts.aggregate(total=Sum("litres"))["total"])
     delivered = lines.aggregate(delivery=Sum("total_delivery"), testing=Sum("testing_litres"))
-    sold = delivered["delivery"] or ZERO
+    sold = _litres(delivered["delivery"])
     stock = base + received - sold
     return {
         "tank": tank, "stock": stock, "base": base, "base_date": last.sheet.business_date if last else None,
-        "received": received, "delivered": sold, "testing": delivered["testing"] or ZERO,
+        "received": received, "delivered": sold, "testing": _litres(delivered["testing"]),
         "percent": max(0, min(100, int(stock * 100 / tank.capacity_litres))) if tank.capacity_litres else None,
     }
 
