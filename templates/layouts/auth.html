@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block body %}
+<div class="auth-page">
+  <aside class="auth-aside">
+    <div class="app-brand p-0">
+      <span class="app-brand-mark"><i class="bi bi-fuel-pump" aria-hidden="true"></i></span>
+      PetroSmart
+    </div>
+    <div>
+      <h2>Daily sales, stock and collections for your petrol pump, in one place.</h2>
+      <ul>
+        <li><i class="bi bi-check2-circle" aria-hidden="true"></i> Nozzle readings with testing litres kept separate from customer sales</li>
+        <li><i class="bi bi-check2-circle" aria-hidden="true"></i> Dealer approval for every day's entries</li>
+        <li><i class="bi bi-check2-circle" aria-hidden="true"></i> Your business data stays private to your business</li>
+      </ul>
+    </div>
+    <p class="small mb-0">Petrol pump management for dealers in India</p>
+  </aside>
+
+  <main class="auth-main">
+    <div class="auth-card">
+      <div class="d-lg-none text-center mb-4">
+        <span class="app-brand justify-content-center p-0" style="color: var(--ps-forest)">
+          <span class="app-brand-mark"><i class="bi bi-fuel-pump" aria-hidden="true"></i></span>
+          PetroSmart
+        </span>
+      </div>
+      {% include "partials/messages.html" %}
+      <div class="card">
+        <div class="card-body">
+          {% block auth_content %}{% endblock %}
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+{% endblock %}

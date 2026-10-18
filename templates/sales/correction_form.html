@@ -1,0 +1,51 @@
+{% extends "layouts/app.html" %}
+{% load ps_format %}
+{% block title %}Request correction{% endblock %}
+{% block breadcrumb %}{{ business.name }} / <a href="{% url 'sales:sheet_list' %}">Daily Sales</a> / Correction{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Request a correction</h1>
+    <p class="subtitle">{{ sheet.outlet.code }} · {{ sheet.business_date|date:"d M Y" }} · {{ sheet.shift.name }} shift (approved)</p>
+  </div>
+</div>
+
+<div class="alert alert-info">
+  <i class="bi bi-info-circle" aria-hidden="true"></i>
+  <div>Change only the values that are wrong. Nothing changes until the Dealer approves, and the old values are kept in the sheet's history.
+  If you change a closing reading, the next shift's opening reading for that nozzle is updated too.</div>
+</div>
+
+<form method="post" novalidate>
+  {% csrf_token %}
+  {% if form.non_field_errors %}
+    <div class="alert alert-danger" role="alert"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i><div>{% for error in form.non_field_errors %}<div>{{ error }}</div>{% endfor %}</div></div>
+  {% endif %}
+  <div class="card table-card mb-3">
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead>
+          <tr><th scope="col">Nozzle</th><th scope="col" class="num">Opening (L)</th><th scope="col" class="entry-col">Closing (L)</th><th scope="col" class="entry-col">Testing (L)</th><th scope="col" class="entry-col">Price (₹/L)</th></tr>
+        </thead>
+        <tbody>
+          {% for line, closing, testing, price in form.rows %}
+            <tr>
+              <th scope="row"><span class="fw-semibold">{{ line.nozzle.code }}</span> <span class="fuel-tag fuel-{{ line.product.category|lower }} ms-1">{{ line.product.code }}</span></th>
+              <td class="num">{{ line.opening_reading|qty }}</td>
+              <td class="entry-col"><label class="visually-hidden" for="{{ closing.id_for_label }}">Closing for {{ line.nozzle.code }}</label>{{ closing }}{% include "partials/field_feedback.html" with field=closing %}</td>
+              <td class="entry-col"><label class="visually-hidden" for="{{ testing.id_for_label }}">Testing for {{ line.nozzle.code }}</label>{{ testing }}{% include "partials/field_feedback.html" with field=testing %}</td>
+              <td class="entry-col"><label class="visually-hidden" for="{{ price.id_for_label }}">Price for {{ line.nozzle.code }}</label>{{ price }}{% include "partials/field_feedback.html" with field=price %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card form-card mb-3"><div class="card-body">{% include "partials/form_field.html" with field=form.reason %}</div></div>
+  <div class="d-flex gap-2 justify-content-end">
+    <a class="btn btn-outline-secondary" href="{{ sheet.get_absolute_url }}">Cancel</a>
+    <button type="submit" class="btn btn-primary" data-busy-text="Sending…">Send for approval</button>
+  </div>
+</form>
+{% endblock %}

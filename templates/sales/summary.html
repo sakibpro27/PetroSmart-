@@ -1,0 +1,65 @@
+{% extends "layouts/app.html" %}
+{% load ps_format %}
+{% block title %}Sales summary{% endblock %}
+{% block breadcrumb %}{{ business.name }} / Sales summary{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Sales summary</h1>
+    <p class="subtitle">Customer sales exclude testing litres. Testing litres and total nozzle delivery are shown separately.</p>
+  </div>
+</div>
+
+<form method="get" class="card card-body mb-3 filter-bar">
+  <div class="row g-2 align-items-end">
+    <div class="col-sm-6 col-lg-2">{% include "partials/form_field.html" with field=form.group_by %}</div>
+    <div class="col-sm-6 col-lg-2">{% include "partials/form_field.html" with field=form.date_from %}</div>
+    <div class="col-sm-6 col-lg-2">{% include "partials/form_field.html" with field=form.date_to %}</div>
+    <div class="col-sm-6 col-lg-2">{% include "partials/form_field.html" with field=form.outlet %}</div>
+    <div class="col-sm-6 col-lg-2">{% include "partials/form_field.html" with field=form.product %}</div>
+    <div class="col-sm-6 col-lg-2 mb-3"><button type="submit" class="btn btn-primary w-100" data-no-busy>Show</button></div>
+    <div class="col-12">{% include "partials/form_field.html" with field=form.include_submitted %}</div>
+  </div>
+</form>
+
+{% if rows is not None %}
+  <div class="card table-card">
+    <div class="card-header d-flex justify-content-between flex-wrap gap-2">
+      <span>By {{ group_label|lower }} · {{ filters.date_from|date:"d M Y" }} to {{ filters.date_to|date:"d M Y" }}</span>
+      <span class="small text-muted fw-normal">{% if filters.include_submitted %}Approved and awaiting approval{% else %}Approved sheets only{% endif %}</span>
+    </div>
+    {% if rows %}
+      <div class="table-responsive">
+        <table class="table table-hover align-middle">
+          <thead>
+            <tr><th scope="col">{{ group_label }}</th><th scope="col" class="num">Total nozzle delivery (L)</th><th scope="col" class="num">Testing (L)</th><th scope="col" class="num">Net customer sales (L)</th><th scope="col" class="num">Customer sales value</th></tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td class="fw-medium">{{ row.label }}</td>
+                <td class="num">{{ row.total_delivery|qty }}</td>
+                <td class="num">{{ row.testing_litres|qty }}</td>
+                <td class="num fw-semibold">{{ row.net_sales_litres|qty }}</td>
+                <td class="num">{{ row.sales_value|inr }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr class="subtotal">
+              <th scope="row">Total</th>
+              <td class="num">{{ totals.total_delivery|qty }}</td>
+              <td class="num">{{ totals.testing_litres|qty }}</td>
+              <td class="num fw-semibold">{{ totals.net_sales_litres|qty }}</td>
+              <td class="num fw-semibold">{{ totals.sales_value|inr }}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state"><i class="bi bi-bar-chart" aria-hidden="true"></i><div class="title">No sales in this period</div><div>Only sheets that match the filters are included.</div></div>
+    {% endif %}
+  </div>
+{% endif %}
+{% endblock %}

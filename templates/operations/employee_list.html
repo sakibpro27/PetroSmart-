@@ -1,0 +1,34 @@
+{% extends "layouts/app.html" %}
+{% block title %}Employees{% endblock %}
+{% block breadcrumb %}{{ business.name }} / Employees{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div><h1>Employees</h1><p class="subtitle">Outlet staff. These are staff records only; employees do not log in to PetroSmart.</p></div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary" href="{% url 'operations:attendance' %}"><i class="bi bi-calendar-check me-1" aria-hidden="true"></i> Shift attendance</a>
+    {% if user.is_dealer %}<a class="btn btn-primary" href="{% url 'operations:employee_create' %}"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i> Add employee</a>{% endif %}
+  </div>
+</div>
+<div class="card table-card">
+  {% if employees %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead><tr><th scope="col">Name</th><th scope="col">Outlet</th><th scope="col">Job</th><th scope="col">Phone</th><th scope="col">Joined</th><th scope="col">Status</th>{% if user.is_dealer %}<th scope="col"><span class="visually-hidden">Actions</span></th>{% endif %}</tr></thead>
+        <tbody>
+          {% for e in employees %}
+            <tr>
+              <td class="fw-medium">{{ e.name }}</td><td>{{ e.outlet.code }}</td><td>{{ e.job_title }}</td><td>{{ e.phone|default:"—" }}</td>
+              <td>{{ e.joined_on|date:"d M Y"|default:"—" }}</td>
+              <td>{% if e.is_active %}<span class="status status-success"><i class="bi bi-check-circle" aria-hidden="true"></i> Employed</span>{% else %}<span class="status status-neutral">Left</span>{% endif %}</td>
+              {% if user.is_dealer %}<td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{% url 'operations:employee_edit' e.pk %}">Edit</a></td>{% endif %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state"><i class="bi bi-person-badge" aria-hidden="true"></i><div class="title">No employees yet</div></div>
+  {% endif %}
+</div>
+{% endblock %}

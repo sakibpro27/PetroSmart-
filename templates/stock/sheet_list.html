@@ -1,0 +1,64 @@
+{% extends "layouts/app.html" %}
+{% load ps_format %}
+{% block title %}Tank stock{% endblock %}
+{% block breadcrumb %}{{ business.name }} / Tank stock{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Tank stock</h1>
+    <p class="subtitle">Daily reconciliation of each tank: opening + received − total nozzle delivery, compared with the dip.</p>
+  </div>
+  <a class="btn btn-primary" href="{% url 'stock:sheet_create' %}"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i> New stock sheet</a>
+</div>
+
+<form method="get" class="card card-body mb-3 filter-bar">
+  <div class="row g-2 align-items-end">
+    <div class="col-sm-6 col-lg-4">
+      <label class="form-label small" for="f-outlet">Outlet</label>
+      <select class="form-select" id="f-outlet" name="outlet">
+        <option value="">All outlets</option>
+        {% for outlet in outlets %}<option value="{{ outlet.pk }}" {% if selected_outlet == outlet.pk|stringformat:"s" %}selected{% endif %}>{{ outlet.code }} · {{ outlet.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-sm-3 col-lg-2"><button type="submit" class="btn btn-outline-secondary w-100" data-no-busy>Filter</button></div>
+  </div>
+</form>
+
+<div class="card table-card">
+  {% if sheets %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead>
+          <tr><th scope="col">Date</th><th scope="col">Outlet</th><th scope="col">Status</th><th scope="col" class="num">Tanks</th>
+              <th scope="col" class="num">Received (L)</th><th scope="col" class="num">Total delivery (L)</th><th scope="col" class="num">Net variation (L)</th></tr>
+        </thead>
+        <tbody>
+          {% for sheet in sheets %}
+            <tr>
+              <td class="text-nowrap"><a href="{{ sheet.get_absolute_url }}">{{ sheet.business_date|date:"d M Y" }}</a></td>
+              <td>{{ sheet.outlet.code }}</td>
+              <td>{% include "sales/partials/status.html" with status=sheet.status label=sheet.get_status_display %}</td>
+              <td class="num">{{ sheet.tank_count }}</td>
+              <td class="num">{{ sheet.received|qty }}</td>
+              <td class="num">{{ sheet.delivery|qty }}</td>
+              <td class="num">{{ sheet.variation|qty }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if is_paginated %}
+      <nav class="card-footer d-flex justify-content-between align-items-center" aria-label="Pages">
+        <span class="small text-muted">Page {{ page_obj.number }} of {{ paginator.num_pages }}</span>
+        <span class="d-flex gap-2">
+          {% if page_obj.has_previous %}<a class="btn btn-sm btn-outline-secondary" href="?page={{ page_obj.previous_page_number }}&outlet={{ selected_outlet }}">Previous</a>{% endif %}
+          {% if page_obj.has_next %}<a class="btn btn-sm btn-outline-secondary" href="?page={{ page_obj.next_page_number }}&outlet={{ selected_outlet }}">Next</a>{% endif %}
+        </span>
+      </nav>
+    {% endif %}
+  {% else %}
+    <div class="empty-state"><i class="bi bi-database" aria-hidden="true"></i><div class="title">No stock sheets yet</div><div>Start one at the end of the business day, after the Daily Sales are submitted.</div></div>
+  {% endif %}
+</div>
+{% endblock %}

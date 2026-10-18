@@ -1,0 +1,10 @@
+{% extends "layouts/auth.html" %}
+{% block title %}Access denied{% endblock %}
+
+{% block auth_content %}
+<div class="alert alert-danger" role="alert">
+  <i class="bi bi-shield-lock" aria-hidden="true"></i>
+  <div><strong>Access denied.</strong> Your account does not have permission to open this page.</div>
+</div>
+<a href="/" class="btn btn-primary w-100">Go to overview</a>
+{% endblock %}

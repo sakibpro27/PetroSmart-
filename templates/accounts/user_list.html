@@ -1,0 +1,39 @@
+{% extends "layouts/app.html" %}
+{% block title %}Users{% endblock %}
+{% block breadcrumb %}{{ business.name }} / Users{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Users</h1>
+    <p class="subtitle">Dealers and managers who can log in to {{ business.name }}.</p>
+  </div>
+  <a class="btn btn-primary" href="{% url 'accounts:user_create' %}"><i class="bi bi-person-plus me-1" aria-hidden="true"></i> Add user</a>
+</div>
+
+<div class="card table-card">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle">
+      <thead>
+        <tr><th scope="col">Name</th><th scope="col">Username</th><th scope="col">Role</th><th scope="col">Outlets</th><th scope="col">Last login</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr>
+      </thead>
+      <tbody>
+        {% for person in users %}
+          <tr>
+            <td class="fw-medium">{{ person.get_full_name|default:person.username }}{% if person.pk == user.pk %} <span class="small text-muted">(you)</span>{% endif %}</td>
+            <td>{{ person.username }}</td>
+            <td>{{ person.get_role_display }}</td>
+            <td>{% if person.is_dealer %}<span class="text-muted">All outlets</span>{% else %}{% for outlet in person.assigned_outlets.all %}{{ outlet.code }}{% if not forloop.last %}, {% endif %}{% empty %}<span class="text-muted">None</span>{% endfor %}{% endif %}</td>
+            <td class="text-nowrap">{{ person.last_login|date:"d M Y, H:i"|default:"Never" }}</td>
+            <td>{% include "partials/active_status.html" with active=person.is_active %}</td>
+            <td class="text-end text-nowrap">
+              <a class="btn btn-sm btn-outline-secondary" href="{% url 'accounts:user_edit' person.pk %}">Edit</a>
+              <a class="btn btn-sm btn-outline-secondary" href="{% url 'accounts:user_password' person.pk %}">Password</a>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

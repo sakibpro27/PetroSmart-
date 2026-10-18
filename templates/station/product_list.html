@@ -1,0 +1,35 @@
+{% extends "layouts/app.html" %}
+{% block title %}Fuel products{% endblock %}
+{% block breadcrumb %}{{ business.name }} / Fuel products{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Fuel products</h1>
+    <p class="subtitle">Every product belongs to the MS (petrol) or HSD (diesel) category. Prices are set per outlet.</p>
+  </div>
+  <a class="btn btn-primary" href="{% url 'station:product_create' %}"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i> Add product</a>
+</div>
+
+<div class="card table-card form-card">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle">
+      <thead>
+        <tr><th scope="col">Code</th><th scope="col">Name</th><th scope="col">Category</th><th scope="col" class="num">Active nozzles</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr>
+      </thead>
+      <tbody>
+        {% for product in products %}
+          <tr>
+            <td><span class="fuel-tag fuel-{{ product.category|lower }}">{{ product.code }}</span></td>
+            <td class="fw-medium">{{ product.name }}</td>
+            <td>{{ product.get_category_display }}</td>
+            <td class="num">{{ product.nozzle_count }}</td>
+            <td>{% include "partials/active_status.html" with active=product.is_active %}</td>
+            <td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{% url 'station:product_edit' product.pk %}">Edit</a></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

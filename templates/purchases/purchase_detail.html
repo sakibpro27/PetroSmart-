@@ -1,0 +1,82 @@
+{% extends "layouts/app.html" %}
+{% load ps_format %}
+{% block title %}Invoice {{ purchase.invoice_number }}{% endblock %}
+{% block breadcrumb %}{{ business.name }} / <a href="{% url 'purchases:purchase_list' %}">Fuel purchases</a> / {{ purchase.invoice_number }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Invoice {{ purchase.invoice_number }}</h1>
+    <p class="subtitle">{{ purchase.supplier.name }} · {{ purchase.product.name }} · {{ purchase.outlet.name }} ({{ purchase.outlet.code }})</p>
+  </div>
+  {% if can_change and not locked %}
+    <div class="d-flex gap-2">
+      <a class="btn btn-outline-secondary" href="{% url 'purchases:purchase_edit' purchase.pk %}"><i class="bi bi-pencil me-1" aria-hidden="true"></i> Edit</a>
+      <form method="post" action="{% url 'purchases:purchase_delete' purchase.pk %}" data-confirm="Delete invoice {{ purchase.invoice_number }} and its tank receipts? The deletion is recorded in the audit log.">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-outline-secondary"><i class="bi bi-trash me-1" aria-hidden="true"></i> Delete</button>
+      </form>
+    </div>
+  {% elif locked %}
+    <span class="status status-neutral"><i class="bi bi-lock" aria-hidden="true"></i> Locked: tank stock for {{ purchase.delivery_date|date:"d M Y" }} is submitted</span>
+  {% endif %}
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-xl-3"><div class="stat"><div class="stat-label">Invoiced quantity</div><div class="stat-value">{{ purchase.invoiced_litres|qty }} L</div></div></div>
+  <div class="col-6 col-xl-3"><div class="stat"><div class="stat-label">Received into tanks</div><div class="stat-value">{{ received|qty }} L</div></div></div>
+  <div class="col-6 col-xl-3">
+    <div class="stat">
+      <div class="stat-label">Difference (received − invoiced)</div>
+      <div class="stat-value">{{ difference|qty }} L</div>
+      <div class="stat-meta">{% if difference < 0 %}<span class="status status-danger"><i class="bi bi-arrow-down" aria-hidden="true"></i> Short</span>{% elif difference > 0 %}<span class="status status-warning"><i class="bi bi-arrow-up" aria-hidden="true"></i> Excess</span>{% else %}<span class="status status-success"><i class="bi bi-check-circle" aria-hidden="true"></i> Matches</span>{% endif %}</div>
+    </div>
+  </div>
+  <div class="col-6 col-xl-3"><div class="stat"><div class="stat-label">Invoice amount</div><div class="stat-value">{{ purchase.invoice_amount|inr }}</div></div></div>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-6">
+    <div class="card mb-4">
+      <div class="card-header">Invoice details</div>
+      <div class="card-body">
+        <dl class="detail-list">
+          <dt>Invoice date</dt><dd>{{ purchase.invoice_date|date:"d M Y" }}</dd>
+          <dt>Delivered on</dt><dd>{{ purchase.delivery_date|date:"d M Y" }}</dd>
+          <dt>Rate</dt><dd>₹{{ purchase.purchase_rate }} per litre</dd>
+          <dt>Litres × rate</dt><dd>{{ purchase.base_amount|inr }}</dd>
+          <dt>Other charges / taxes</dt><dd>{{ purchase.other_charges|inr }} <span class="small text-muted">(invoice amount − litres × rate, for information)</span></dd>
+          <dt>Tanker</dt><dd>{{ purchase.tanker_number|default:"—" }}</dd>
+          <dt>Entered by</dt><dd>{{ purchase.entered_by.get_full_name|default:purchase.entered_by.username }} · {{ purchase.created_at|date:"d M Y, H:i" }}</dd>
+          {% if purchase.notes %}<dt>Notes</dt><dd>{{ purchase.notes|linebreaksbr }}</dd>{% endif %}
+        </dl>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card table-card mb-4">
+      <div class="card-header">Compared with tank stock on {{ purchase.delivery_date|date:"d M Y" }}</div>
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead><tr><th scope="col">Tank</th><th scope="col" class="num">From this invoice (L)</th><th scope="col" class="num">All received that day (L)</th><th scope="col" class="num">Stock variation (L)</th></tr></thead>
+          <tbody>
+            {% for row in comparison %}
+              <tr>
+                <td class="fw-medium">{{ row.receipt.tank.code }}</td>
+                <td class="num">{{ row.receipt.litres|qty }}</td>
+                {% if row.stock_line %}
+                  <td class="num">{{ row.stock_line.fuel_received|qty }}</td>
+                  <td class="num">{% include "stock/partials/variation.html" with line=row.stock_line %} <a class="small ms-1" href="{{ row.stock_line.sheet.get_absolute_url }}">View</a></td>
+                {% else %}
+                  <td class="num text-muted" colspan="2">No stock sheet for this date yet</td>
+                {% endif %}
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="card-footer small text-muted">A tank's stock variation for the day shows whether the measured dip agrees with what was received and sold.</div>
+    </div>
+  </div>
+</div>
+{% endblock %}

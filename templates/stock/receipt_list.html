@@ -1,0 +1,51 @@
+{% extends "layouts/app.html" %}
+{% load ps_format %}
+{% block title %}Fuel received{% endblock %}
+{% block breadcrumb %}{{ business.name }} / Fuel received{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Fuel received</h1>
+    <p class="subtitle">Tanker deliveries unloaded into each tank. These feed the tank stock reconciliation.</p>
+  </div>
+  <a class="btn btn-primary" href="{% url 'stock:receipt_create' %}"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i> Record fuel received</a>
+</div>
+
+<div class="card table-card">
+  {% if receipts %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead><tr><th scope="col">Date</th><th scope="col">Outlet</th><th scope="col">Tank</th><th scope="col">Reference</th><th scope="col" class="num">Litres</th><th scope="col">Entered by</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+        <tbody>
+          {% for receipt in receipts %}
+            <tr>
+              <td class="text-nowrap">{{ receipt.received_on|date:"d M Y" }}</td>
+              <td>{{ receipt.outlet.code }}</td>
+              <td>{{ receipt.tank.code }} <span class="fuel-tag fuel-{{ receipt.tank.product.category|lower }} ms-1">{{ receipt.tank.product.code }}</span></td>
+              <td>{{ receipt.reference|default:"—" }}{% if receipt.notes %}<div class="small text-muted">{{ receipt.notes }}</div>{% endif %}</td>
+              <td class="num">{{ receipt.litres|qty }}</td>
+              <td>{{ receipt.entered_by.get_full_name|default:receipt.entered_by.username }}</td>
+              <td class="text-end text-nowrap">
+                {% if receipt.purchase_id %}
+                  <a class="btn btn-sm btn-outline-secondary" href="{{ receipt.purchase.get_absolute_url }}"><i class="bi bi-receipt me-1" aria-hidden="true"></i> Invoice</a>
+                {% elif receipt.locked %}
+                  <span class="status status-neutral"><i class="bi bi-lock" aria-hidden="true"></i> Locked by stock sheet</span>
+                {% else %}
+                  <a class="btn btn-sm btn-outline-secondary" href="{% url 'stock:receipt_edit' receipt.pk %}">Edit</a>
+                  <form method="post" action="{% url 'stock:receipt_delete' receipt.pk %}" class="d-inline" data-confirm="Delete this receipt of {{ receipt.litres }} L? The deletion is recorded in the audit log.">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">Delete</button>
+                  </form>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state"><i class="bi bi-truck" aria-hidden="true"></i><div class="title">No fuel received yet</div></div>
+  {% endif %}
+</div>
+{% endblock %}

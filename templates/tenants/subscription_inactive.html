@@ -1,0 +1,17 @@
+{% extends "layouts/auth.html" %}
+{% block title %}Subscription inactive{% endblock %}
+
+{% block auth_content %}
+<div class="alert alert-warning" role="alert">
+  <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+  <div>
+    <strong>{{ user.business.name }}</strong> does not have an active PetroSmart subscription
+    (status: {{ user.business.get_status_display }}, valid until {{ user.business.subscription_ends_on|date:"d M Y" }}).
+  </div>
+</div>
+<p class="text-muted">Your data has not been deleted. {% if user.is_dealer %}Please contact PetroSmart support to renew.{% else %}Please ask your dealer to renew the subscription.{% endif %}</p>
+<form method="post" action="{% url 'logout' %}">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-outline-secondary w-100">Log out</button>
+</form>
+{% endblock %}

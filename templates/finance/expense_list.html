@@ -1,0 +1,68 @@
+{% extends "layouts/app.html" %}
+{% load ps_format %}
+{% block title %}Expenses{% endblock %}
+{% block breadcrumb %}{{ business.name }} / Expenses{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Expenses</h1>
+    <p class="subtitle">Business expenses by outlet and category.</p>
+  </div>
+  <a class="btn btn-primary" href="{% url 'finance:expense_create' %}"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i> Record expense</a>
+</div>
+
+<form method="get" class="card card-body mb-3 filter-bar">
+  <div class="row g-2 align-items-end">
+    <div class="col-sm-4 col-lg-3">{% include "partials/form_field.html" with field=filter_form.date_from %}</div>
+    <div class="col-sm-4 col-lg-3">{% include "partials/form_field.html" with field=filter_form.date_to %}</div>
+    <div class="col-sm-4 col-lg-3">{% include "partials/form_field.html" with field=filter_form.outlet %}</div>
+    <div class="col-sm-4 col-lg-2 mb-3"><button type="submit" class="btn btn-outline-secondary w-100" data-no-busy>Filter</button></div>
+  </div>
+</form>
+
+<div class="row g-4">
+  <div class="col-xl-8">
+    <div class="card table-card">
+      {% if expenses %}
+        <div class="table-responsive">
+          <table class="table table-hover align-middle">
+            <thead><tr><th scope="col">Date</th><th scope="col">Outlet</th><th scope="col">Category</th><th scope="col">Description</th><th scope="col">Paid by</th><th scope="col" class="num">Amount</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+            <tbody>
+              {% for expense in expenses %}
+                <tr>
+                  <td class="text-nowrap">{{ expense.expense_date|date:"d M Y" }}</td>
+                  <td>{{ expense.outlet.code }}</td>
+                  <td>{{ expense.category.name }}</td>
+                  <td>{{ expense.description }}{% if expense.paid_to or expense.reference %}<div class="small text-muted">{{ expense.paid_to }}{% if expense.paid_to and expense.reference %} · {% endif %}{{ expense.reference }}</div>{% endif %}</td>
+                  <td>{{ expense.method.name }}</td>
+                  <td class="num">{{ expense.amount|inr }}</td>
+                  <td class="text-end text-nowrap">
+                    <a class="btn btn-sm btn-outline-secondary" href="{% url 'finance:expense_edit' expense.pk %}">Edit</a>
+                    <form method="post" action="{% url 'finance:expense_delete' expense.pk %}" class="d-inline" data-confirm="Delete this expense of ₹{{ expense.amount }}? The deletion is recorded in the audit log.">
+                      {% csrf_token %}<button type="submit" class="btn btn-sm btn-outline-secondary">Delete</button>
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+            <tfoot><tr><th scope="row" colspan="5">Total for the period</th><td class="num">{{ total|inr }}</td><td></td></tr></tfoot>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty-state"><i class="bi bi-wallet2" aria-hidden="true"></i><div class="title">No expenses in this period</div></div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-xl-4">
+    <div class="card table-card">
+      <div class="card-header">By category</div>
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <tbody>{% for row in by_category %}<tr><td>{{ row.category__name }}</td><td class="num">{{ row.total|inr }}</td></tr>{% empty %}<tr><td class="text-muted">Nothing yet</td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

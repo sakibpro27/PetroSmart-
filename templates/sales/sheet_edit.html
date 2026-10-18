@@ -1,0 +1,145 @@
+{% extends "layouts/app.html" %}
+{% load static ps_format %}
+{% block title %}Daily Sales entry{% endblock %}
+{% block breadcrumb %}{{ business.name }} / <a href="{% url 'sales:sheet_list' %}">Daily Sales</a> / {{ sheet.outlet.code }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>{{ sheet.business_date|date:"d M Y" }} · {{ sheet.shift.name }} shift</h1>
+    <p class="subtitle">{{ sheet.outlet.name }} ({{ sheet.outlet.code }}) · {% include "sales/partials/status.html" with status=sheet.status label=sheet.get_status_display %}</p>
+  </div>
+</div>
+
+{% if sheet.review_note %}
+  <div class="alert alert-warning" role="alert">
+    <i class="bi bi-arrow-return-left" aria-hidden="true"></i>
+    <div><strong>Sent back by the Dealer:</strong> {{ sheet.review_note }}</div>
+  </div>
+{% endif %}
+
+<div class="alert alert-info">
+  <i class="bi bi-info-circle" aria-hidden="true"></i>
+  <div>
+    Enter each nozzle's <strong>closing totalizer reading</strong> and any <strong>testing litres</strong>.
+    Total delivery = closing − opening. Net customer sales = total delivery − testing litres.
+    Opening readings and prices come from the system and cannot be changed here.
+  </div>
+</div>
+
+<form method="post" novalidate>
+  {% csrf_token %}
+  {{ formset.management_form }}
+  {% if formset.non_form_errors %}
+    <div class="alert alert-danger" role="alert"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i><div>{{ formset.non_form_errors|join:" " }}</div></div>
+  {% endif %}
+
+  <div class="card table-card mb-3">
+    <div class="table-responsive">
+      <table class="table align-middle entry-table" data-sales-entry>
+        <thead>
+          <tr>
+            <th scope="col">Nozzle</th>
+            <th scope="col" class="num">Opening (L)</th>
+            <th scope="col" class="num entry-col">Closing (L)</th>
+            <th scope="col" class="num entry-col">Testing (L)</th>
+            <th scope="col" class="num">Total delivery (L)</th>
+            <th scope="col" class="num">Net sales (L)</th>
+            <th scope="col" class="num">Price (₹/L)</th>
+            <th scope="col" class="num">Sales value</th>
+            <th scope="col"><span class="visually-hidden">More</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for form in formset %}
+            {% with line=form.instance %}
+            <tr class="entry-row{% if form.errors %} has-error{% endif %}" data-opening="{{ line.opening_reading }}" data-price="{{ line.price_per_litre }}" data-extra="extra-{{ forloop.counter0 }}">
+              <th scope="row" class="text-nowrap">
+                {{ form.id }}
+                <span class="fw-semibold">{{ line.nozzle.code }}</span>
+                <span class="fuel-tag fuel-{{ line.product.category|lower }} ms-1">{{ line.product.code }}</span>
+                <div class="small text-muted fw-normal">{{ line.nozzle.dispenser.code }}</div>
+              </th>
+              <td class="num">{{ line.opening_reading|qty }}</td>
+              <td class="entry-col">
+                <label class="visually-hidden" for="{{ form.closing_reading.id_for_label }}">Closing reading for {{ line.nozzle.code }}</label>
+                {{ form.closing_reading }}
+                {% include "partials/field_feedback.html" with field=form.closing_reading %}
+              </td>
+              <td class="entry-col">
+                <label class="visually-hidden" for="{{ form.testing_litres.id_for_label }}">Testing litres for {{ line.nozzle.code }}</label>
+                {{ form.testing_litres }}
+                {% include "partials/field_feedback.html" with field=form.testing_litres %}
+              </td>
+              <td class="num" data-out="delivery">{{ line.total_delivery|qty }}</td>
+              <td class="num fw-semibold" data-out="net">{{ line.net_sales_litres|qty }}</td>
+              <td class="num">{{ line.price_per_litre }}</td>
+              <td class="num" data-out="value">{{ line.sales_value|inr }}</td>
+              <td class="text-end">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-toggle-extra="extra-{{ forloop.counter0 }}" aria-controls="extra-{{ forloop.counter0 }}" aria-expanded="true">More</button>
+              </td>
+            </tr>
+            <tr class="entry-extra" id="extra-{{ forloop.counter0 }}" data-keep-open="{% if form.meter_reset.value or form.notes.value or form.errors %}1{% endif %}">
+              <td colspan="9">
+                <div class="small text-danger mb-1" data-out="problem" aria-live="polite"></div>
+                {% for error in form.non_field_errors %}<div class="errorlist"><i class="bi bi-exclamation-circle" aria-hidden="true"></i> {{ error }}</div>{% endfor %}
+                <div class="row g-2 align-items-start">
+                  <div class="col-lg-4">
+                    <label class="form-label small" for="{{ form.notes.id_for_label }}">Notes for {{ line.nozzle.code }}</label>
+                    {{ form.notes }}
+                    {% include "partials/field_feedback.html" with field=form.notes %}
+                  </div>
+                  <div class="col-lg-3 pt-lg-4">
+                    <div class="form-check">
+                      {{ form.meter_reset }}
+                      <label class="form-check-label small" for="{{ form.meter_reset.id_for_label }}">{{ form.meter_reset.label }}</label>
+                    </div>
+                  </div>
+                  <div class="col-sm-6 col-lg-2" data-reset-field>
+                    <label class="form-label small" for="{{ form.reading_before_reset.id_for_label }}">{{ form.reading_before_reset.label }}</label>
+                    {{ form.reading_before_reset }}
+                    {% include "partials/field_feedback.html" with field=form.reading_before_reset %}
+                  </div>
+                  <div class="col-sm-6 col-lg-3" data-reset-field>
+                    <label class="form-label small" for="{{ form.reading_after_reset.id_for_label }}">{{ form.reading_after_reset.label }}</label>
+                    {{ form.reading_after_reset }}
+                    {% include "partials/field_feedback.html" with field=form.reading_after_reset %}
+                  </div>
+                </div>
+              </td>
+            </tr>
+            {% endwith %}
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th scope="row" colspan="4">Total for this sheet <span class="small text-muted fw-normal">(updates as you type; saved figures are calculated by the server)</span></th>
+            <td class="num" data-total="delivery">—</td>
+            <td class="num fw-semibold" data-total="net">—</td>
+            <td></td>
+            <td class="num fw-semibold" data-total="value">—</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+
+  <div class="card form-card mb-3">
+    <div class="card-body">
+      {% include "partials/form_field.html" with field=notes_form.notes %}
+    </div>
+  </div>
+
+  <div class="d-flex flex-wrap gap-2 justify-content-end">
+    <a class="btn btn-outline-secondary" href="{% url 'sales:sheet_list' %}">Back to list</a>
+    <button type="submit" name="action" value="save" class="btn btn-outline-secondary" data-busy-text="Saving…">Save draft</button>
+    <button type="submit" name="action" value="submit" class="btn btn-primary" data-busy-text="Submitting…"
+            data-confirm-submit="Submit this sheet to the Dealer? You cannot edit it after submitting unless the Dealer sends it back.">
+      Save and submit for approval
+    </button>
+  </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}<script src="{% static 'js/sales-entry.js' %}"></script>{% endblock %}

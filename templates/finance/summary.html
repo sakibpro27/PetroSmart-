@@ -1,0 +1,71 @@
+{% extends "layouts/app.html" %}
+{% load ps_format %}
+{% block title %}Operational summary{% endblock %}
+{% block breadcrumb %}{{ business.name }} / Operational summary{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Operational summary</h1>
+    <p class="subtitle">{{ date_from|date:"d M Y" }} to {{ date_to|date:"d M Y" }}</p>
+  </div>
+</div>
+
+<div class="alert alert-warning">
+  <i class="bi bi-info-circle" aria-hidden="true"></i>
+  <div>This is a management summary of recorded figures. It is <strong>not a statutory account or GST return</strong>,
+  and PetroSmart does not calculate taxes.</div>
+</div>
+
+<form method="get" class="card card-body mb-3 filter-bar">
+  <div class="row g-2 align-items-end">
+    <div class="col-sm-4 col-lg-3">{% include "partials/form_field.html" with field=form.date_from %}</div>
+    <div class="col-sm-4 col-lg-3">{% include "partials/form_field.html" with field=form.date_to %}</div>
+    <div class="col-sm-4 col-lg-3">{% include "partials/form_field.html" with field=form.outlet %}</div>
+    <div class="col-sm-4 col-lg-2 mb-3"><button type="submit" class="btn btn-primary w-100" data-no-busy>Show</button></div>
+  </div>
+</form>
+
+<div class="row g-4">
+  <div class="col-lg-6">
+    <div class="card table-card mb-4">
+      <div class="card-header">Sales against money received</div>
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <tbody>
+            <tr><th scope="row" class="fw-normal">Customer sales value <span class="small text-muted">(approved Daily Sales, testing litres excluded)</span></th><td class="num fw-semibold">{{ summary.sales_value|inr }}</td></tr>
+            {% for row in summary.by_method %}<tr><th scope="row" class="fw-normal ps-4">{{ row.method__name }}</th><td class="num">{{ row.total|inr }}</td></tr>{% endfor %}
+            <tr><th scope="row" class="fw-normal">Money collected</th><td class="num">{{ summary.collected|inr }}</td></tr>
+            <tr><th scope="row" class="fw-normal">Credit sales</th><td class="num">{{ summary.credit|inr }}</td></tr>
+          </tbody>
+          <tfoot><tr><th scope="row">Collected + credit − sales value</th><td class="num">{{ summary.difference|inr }}</td></tr></tfoot>
+        </table>
+      </div>
+      <div class="card-footer small text-muted">Collections are counted as recorded for every shift in the period, including shifts whose Daily Sales are not yet approved, so timing differences can appear here.</div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card table-card mb-4">
+      <div class="card-header">Expenses</div>
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <tbody>{% for row in summary.by_category %}<tr><th scope="row" class="fw-normal">{{ row.category__name }}</th><td class="num">{{ row.total|inr }}</td></tr>{% empty %}<tr><td class="text-muted">No expenses</td></tr>{% endfor %}</tbody>
+          <tfoot><tr><th scope="row">Total expenses</th><td class="num">{{ summary.expenses|inr }}</td></tr></tfoot>
+        </table>
+      </div>
+    </div>
+    <div class="card table-card">
+      <div class="card-header">Customer credit</div>
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <tbody>
+            <tr><th scope="row" class="fw-normal">Credit given in this period</th><td class="num">{{ summary.credit|inr }}</td></tr>
+            <tr><th scope="row" class="fw-normal">Payments received from credit customers</th><td class="num">{{ summary.credit_recovered|inr }}</td></tr>
+            <tr><th scope="row">Outstanding now (all customers)</th><td class="num fw-semibold"><a href="{% url 'finance:customer_list' %}">{{ outstanding|inr }}</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

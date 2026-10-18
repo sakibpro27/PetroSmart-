@@ -1,0 +1,33 @@
+{% extends "layouts/app.html" %}
+{% load ps_format %}
+{% block title %}Shop items{% endblock %}
+{% block breadcrumb %}{{ business.name }} / <a href="{% url 'operations:inventory' %}">Lubricants and shop</a> / Items{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div><h1>Shop items</h1><p class="subtitle">Lubricants, coolants and other goods sold at your outlets.</p></div>
+  <a class="btn btn-primary" href="{% url 'operations:item_create' %}"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i> Add item</a>
+</div>
+<div class="card table-card">
+  {% if items %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead><tr><th scope="col">Item</th><th scope="col">Category</th><th scope="col">Unit</th><th scope="col" class="num">Price</th><th scope="col" class="num">Reorder level</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+        <tbody>
+          {% for item in items %}
+            <tr>
+              <td class="fw-medium">{{ item.name }}{% if item.sku %} <span class="small text-muted">{{ item.sku }}</span>{% endif %}</td>
+              <td>{{ item.get_category_display }}</td><td>{{ item.get_unit_display }}</td>
+              <td class="num">{{ item.selling_price|inr }}</td><td class="num">{{ item.reorder_level|qty }}</td>
+              <td>{% include "partials/active_status.html" with active=item.is_active %}</td>
+              <td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{% url 'operations:item_edit' item.pk %}">Edit</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state"><i class="bi bi-box-seam" aria-hidden="true"></i><div class="title">No items yet</div></div>
+  {% endif %}
+</div>
+{% endblock %}

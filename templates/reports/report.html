@@ -1,0 +1,51 @@
+{% extends "layouts/app.html" %}
+{% load ps_format %}
+{% block title %}{{ report.title }}{% endblock %}
+{% block breadcrumb %}{{ business.name }} / <a href="{% url 'reports:index' %}">Reports</a> / {{ spec.title }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>{{ report.title }}</h1>
+    <p class="subtitle">{{ report.subtitle }}</p>
+  </div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary" href="?{{ query }}{% if query %}&{% endif %}export=xlsx"><i class="bi bi-file-earmark-spreadsheet me-1" aria-hidden="true"></i> Excel</a>
+    <a class="btn btn-outline-secondary" href="?{{ query }}{% if query %}&{% endif %}export=pdf"><i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i> PDF</a>
+  </div>
+</div>
+
+{% if not spec.no_period %}
+  <form method="get" class="card card-body mb-3 filter-bar">
+    <div class="row g-2 align-items-end">
+      {% for field in form.visible_fields %}
+        {% if field.widget_type != "checkbox" %}<div class="col-sm-6 col-lg-2">{% include "partials/form_field.html" with field=field %}</div>{% endif %}
+      {% endfor %}
+      <div class="col-sm-6 col-lg-2 mb-3"><button type="submit" class="btn btn-primary w-100" data-no-busy>Show</button></div>
+      {% if form.include_submitted %}<div class="col-12">{% include "partials/form_field.html" with field=form.include_submitted %}</div>{% endif %}
+    </div>
+  </form>
+{% endif %}
+
+<div class="card table-card mb-3">
+  {% if rows %}
+    <div class="table-responsive">
+      <table class="table table-hover table-sm align-middle report-table">
+        <thead><tr>{% for column in report.columns %}<th scope="col" class="{% if column.numeric %}num{% endif %}">{{ column.label }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>{% for value, column in row %}<td class="{% if column.numeric %}num{% endif %}">{{ value|report_cell:column }}</td>{% endfor %}</tr>
+          {% endfor %}
+        </tbody>
+        {% if totals %}
+          <tfoot><tr class="subtotal">{% for value, column in totals %}<td class="{% if column.numeric %}num{% endif %}">{% if value != "" and value is not None %}{{ value|report_cell:column }}{% endif %}</td>{% endfor %}</tr></tfoot>
+        {% endif %}
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state"><i class="bi bi-table" aria-hidden="true"></i><div class="title">No records for this period</div></div>
+  {% endif %}
+</div>
+
+{% for note in report.notes %}<p class="small text-muted mb-1"><i class="bi bi-info-circle me-1" aria-hidden="true"></i>{{ note }}</p>{% endfor %}
+{% endblock %}

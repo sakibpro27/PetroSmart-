@@ -1,0 +1,72 @@
+/* =========================================================================
+   PetroSmart design tokens
+   Change the palette here and it updates across every page.
+   ========================================================================= */
+
+:root {
+  /* --- Brand palette --- */
+  --ps-ivory: #F7F5EF;          /* page background */
+  --ps-white: #FFFFFF;          /* cards, forms, tables */
+  --ps-forest: #244A3C;         /* sidebar, primary buttons */
+  --ps-forest-hover: #1B3A2F;
+  --ps-forest-soft: #E8EFEA;    /* selected rows, subtle highlights */
+  --ps-amber: #D89A35;          /* secondary accent */
+  --ps-amber-hover: #C4862A;
+  --ps-amber-soft: #FBF1DF;
+
+  /* --- Text --- */
+  --ps-text: #292D2B;           /* charcoal */
+  --ps-text-muted: #626760;     /* grey-green */
+  --ps-text-on-dark: #F7F5EF;
+  --ps-text-on-dark-muted: #B9C7BF;
+
+  /* --- Lines --- */
+  --ps-border: #E6E1D7;
+  --ps-border-strong: #D3CCBE;
+
+  /* --- Status (always paired with an icon or label, never colour alone) --- */
+  --ps-success-bg: #E3EEE5;
+  --ps-success-text: #1F5130;
+  --ps-success-border: #C3D9C8;
+  --ps-danger-bg: #F5E7E2;
+  --ps-danger-text: #8A2B1D;
+  --ps-danger-border: #E5C8BE;
+  --ps-warning-bg: #FBF1DF;
+  --ps-warning-text: #7A4E0E;
+  --ps-warning-border: #EED7AE;
+  --ps-info-bg: #E8EFEA;
+  --ps-info-text: #244A3C;
+  --ps-info-border: #C9D8CF;
+
+  /* --- Fuel product colours (charts, badges) --- */
+  --ps-fuel-ms: #244A3C;        /* MS / petrol */
+  --ps-fuel-hsd: #D89A35;       /* HSD / diesel */
+  --ps-testing: #8C7B65;        /* testing litres: neutral, never counted as sales */
+
+  /* --- Chart marks. Validated 18 Oct 2026 against the ivory and white
+     surfaces: both reach at least 3:1 contrast, and they stay distinct
+     under protan, deutan and tritan simulation (OKLab dE 22 or more).
+     HSD uses a darker amber step because the brand amber (#D89A35) is
+     only 2.2:1 on ivory. --- */
+  --ps-chart-ms: #244A3C;
+  --ps-chart-hsd: #B7791F;
+  --ps-chart-grid: #ECE8DF;
+  --ps-chart-axis: #626760;
+
+  /* --- Typography --- */
+  --ps-font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ps-font-size: 0.9375rem;    /* 15px */
+  --ps-font-size-sm: 0.8125rem; /* 13px */
+
+  /* --- Shape and depth --- */
+  --ps-radius: 8px;
+  --ps-radius-sm: 6px;
+  --ps-shadow: 0 1px 2px rgba(41, 45, 43, 0.06);
+  --ps-shadow-raised: 0 4px 14px rgba(41, 45, 43, 0.08);
+
+  /* --- Focus indicator --- */
+  --ps-focus-ring: 0 0 0 3px rgba(36, 74, 60, 0.35);
+
+  /* --- Layout --- */
+  --ps-sidebar-width: 248px;
+}

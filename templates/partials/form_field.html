@@ -1,0 +1,29 @@
+{# Renders one form field with label, help text and errors. Usage: {% include "partials/form_field.html" with field=form.username %} #}
+{% if field.widget_type == "checkbox" %}
+  <div class="mb-3 form-check">
+    {{ field }}
+    <label class="form-check-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+    {% include "partials/field_feedback.html" %}
+  </div>
+{% elif field.widget_type == "checkboxselectmultiple" %}
+  <fieldset class="mb-3">
+    <legend class="form-label fs-6">{{ field.label }}</legend>
+    <div class="check-grid">
+      {% for option in field %}
+        <div class="form-check">
+          {{ option.tag }}
+          <label class="form-check-label" for="{{ option.id_for_label }}">{{ option.choice_label }}</label>
+        </div>
+      {% empty %}
+        <div class="form-text">Nothing to choose yet.</div>
+      {% endfor %}
+    </div>
+    {% include "partials/field_feedback.html" %}
+  </fieldset>
+{% else %}
+  <div class="mb-3">
+    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} <span class="text-muted" aria-hidden="true">*</span>{% endif %}</label>
+    {{ field }}
+    {% include "partials/field_feedback.html" %}
+  </div>
+{% endif %}

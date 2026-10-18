@@ -1,0 +1,48 @@
+{% extends "layouts/app.html" %}
+{% block title %}Shift attendance{% endblock %}
+{% block breadcrumb %}{{ business.name }} / <a href="{% url 'operations:employee_list' %}">Employees</a> / Attendance{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div><h1>Shift attendance</h1><p class="subtitle">Choose a date and shift, then mark each employee at that outlet.</p></div>
+</div>
+
+<form method="get" class="card card-body mb-3 filter-bar">
+  <div class="row g-2 align-items-end">
+    <div class="col-sm-4 col-lg-3">{% include "partials/form_field.html" with field=pick.business_date %}</div>
+    <div class="col-sm-5 col-lg-4">{% include "partials/form_field.html" with field=pick.shift %}</div>
+    <div class="col-sm-3 col-lg-2 mb-3"><button type="submit" class="btn btn-outline-secondary w-100" data-no-busy>Open</button></div>
+  </div>
+</form>
+
+{% if formset %}
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="business_date" value="{{ day|date:'Y-m-d' }}">
+    <input type="hidden" name="shift" value="{{ shift.pk }}">
+    {{ formset.management_form }}
+    <div class="card table-card mb-3">
+      <div class="card-header">{{ shift.outlet.code }} · {{ day|date:"d M Y" }} · {{ shift.name }} {% if already_recorded %}<span class="small text-muted fw-normal">(already recorded; saving updates it)</span>{% endif %}</div>
+      {% if rows %}
+        <div class="table-responsive">
+          <table class="table align-middle">
+            <thead><tr><th scope="col">Employee</th><th scope="col">Attendance</th><th scope="col">Duty</th></tr></thead>
+            <tbody>
+              {% for form, employee in rows %}
+                <tr>
+                  <th scope="row" class="fw-medium">{{ form.employee_id }}{{ employee.name }} <span class="small text-muted fw-normal">{{ employee.job_title }}</span></th>
+                  <td><label class="visually-hidden" for="{{ form.status.id_for_label }}">Attendance</label>{{ form.status }}</td>
+                  <td><label class="visually-hidden" for="{{ form.duty.id_for_label }}">Duty</label>{{ form.duty }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty-state"><i class="bi bi-person-badge" aria-hidden="true"></i><div class="title">No employees at this outlet</div></div>
+      {% endif %}
+    </div>
+    {% if rows %}<div class="d-flex justify-content-end"><button type="submit" class="btn btn-primary">Save attendance</button></div>{% endif %}
+  </form>
+{% endif %}
+{% endblock %}

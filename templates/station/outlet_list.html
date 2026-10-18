@@ -1,0 +1,48 @@
+{% extends "layouts/app.html" %}
+{% block title %}Outlets{% endblock %}
+{% block breadcrumb %}{{ business.name }} / Outlets{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Outlets</h1>
+    <p class="subtitle">Your petrol pump sites. Open an outlet to set up its nozzles, shifts and prices.</p>
+  </div>
+  <a class="btn btn-primary" href="{% url 'station:outlet_create' %}"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i> Add outlet</a>
+</div>
+
+<div class="card table-card">
+  {% if outlets %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead>
+          <tr>
+            <th scope="col">Code</th><th scope="col">Outlet</th><th scope="col">Oil company</th>
+            <th scope="col" class="num">Active nozzles</th><th scope="col" class="num">Active shifts</th>
+            <th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for outlet in outlets %}
+            <tr>
+              <td class="fw-medium">{{ outlet.code }}</td>
+              <td><a href="{{ outlet.get_setup_url }}">{{ outlet.name }}</a></td>
+              <td>{{ outlet.oil_company|default:"—" }}</td>
+              <td class="num">{{ outlet.nozzle_count }}</td>
+              <td class="num">{{ outlet.shift_count }}</td>
+              <td>{% include "partials/active_status.html" with active=outlet.is_active %}</td>
+              <td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{{ outlet.get_setup_url }}">Set up</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state">
+      <i class="bi bi-shop" aria-hidden="true"></i>
+      <div class="title">No outlets yet</div>
+      <div>Add your first outlet to start recording sales.</div>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

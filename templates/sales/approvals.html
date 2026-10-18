@@ -1,0 +1,67 @@
+{% extends "layouts/app.html" %}
+{% load ps_format %}
+{% block title %}Approvals{% endblock %}
+{% block breadcrumb %}{{ business.name }} / Approvals{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Waiting for your approval</h1>
+    <p class="subtitle">Daily Sales sheets and corrections submitted by your managers, oldest first.</p>
+  </div>
+</div>
+
+<div class="card table-card mb-4">
+  <div class="card-header">Daily Sales sheets <span class="text-muted fw-normal">({{ sheets|length }})</span></div>
+  {% if sheets %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead>
+          <tr><th scope="col">Date</th><th scope="col">Shift</th><th scope="col">Outlet</th><th scope="col">Submitted by</th>
+              <th scope="col" class="num">Testing (L)</th><th scope="col" class="num">Net sales (L)</th><th scope="col" class="num">Sales value</th><th scope="col">Check</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr>
+        </thead>
+        <tbody>
+          {% for sheet in sheets %}
+            <tr>
+              <td class="text-nowrap">{{ sheet.business_date|date:"d M Y" }}</td>
+              <td>{{ sheet.shift.name }}</td>
+              <td>{{ sheet.outlet.code }}</td>
+              <td>{{ sheet.submitted_by.get_full_name|default:sheet.submitted_by.username }}</td>
+              <td class="num">{{ sheet.testing_litres|qty }}</td>
+              <td class="num fw-semibold">{{ sheet.net_sales_litres|qty }}</td>
+              <td class="num">{{ sheet.sales_value|inr }}</td>
+              <td>{% if sheet.meter_resets %}<span class="status status-warning"><i class="bi bi-arrow-repeat" aria-hidden="true"></i> Meter reset</span>{% else %}<span class="text-muted small">—</span>{% endif %}</td>
+              <td class="text-end"><a class="btn btn-sm btn-primary" href="{{ sheet.get_absolute_url }}">Review</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state"><i class="bi bi-check2-all" aria-hidden="true"></i><div class="title">Nothing to approve</div></div>
+  {% endif %}
+</div>
+
+<div class="card table-card">
+  <div class="card-header">Corrections to approved sheets <span class="text-muted fw-normal">({{ corrections|length }})</span></div>
+  {% if corrections %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead><tr><th scope="col">Sheet</th><th scope="col">Requested by</th><th scope="col">Reason</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+        <tbody>
+          {% for correction in corrections %}
+            <tr>
+              <td class="text-nowrap">{{ correction.sheet.outlet.code }} · {{ correction.sheet.business_date|date:"d M Y" }} · {{ correction.sheet.shift.name }}</td>
+              <td>{{ correction.requested_by.get_full_name|default:correction.requested_by.username }}</td>
+              <td>{{ correction.reason|truncatechars:90 }}</td>
+              <td class="text-end"><a class="btn btn-sm btn-primary" href="{{ correction.sheet.get_absolute_url }}">Review</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state"><i class="bi bi-check2-all" aria-hidden="true"></i><div class="title">No corrections waiting</div></div>
+  {% endif %}
+</div>
+{% endblock %}

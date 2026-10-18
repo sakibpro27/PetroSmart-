@@ -1,0 +1,63 @@
+{% extends "layouts/app.html" %}
+{% load ps_format %}
+{% block title %}Lubricants and shop{% endblock %}
+{% block breadcrumb %}{{ business.name }} / Lubricants and shop{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Lubricants and shop stock</h1>
+    <p class="subtitle">Shop sales this month: <strong>{{ month_sales|inr }}</strong> · kept separate from fuel sales.</p>
+  </div>
+  <div class="d-flex gap-2">
+    {% if user.is_dealer %}<a class="btn btn-outline-secondary" href="{% url 'operations:item_list' %}">Manage items</a>{% endif %}
+    <a class="btn btn-primary" href="{% url 'operations:movement_create' %}"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i> Record movement</a>
+  </div>
+</div>
+
+<div class="card table-card mb-4">
+  <div class="card-header">Stock on hand</div>
+  {% if rows %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead><tr><th scope="col">Item</th><th scope="col">Outlet</th><th scope="col" class="num">On hand</th><th scope="col" class="num">Reorder level</th><th scope="col">Status</th></tr></thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              <td class="fw-medium">{{ row.item.name }}{% if row.item.sku %} <span class="small text-muted">{{ row.item.sku }}</span>{% endif %}</td>
+              <td>{{ row.outlet.code }}</td>
+              <td class="num">{{ row.on_hand|qty }} <span class="small text-muted">{{ row.item.get_unit_display|lower }}</span></td>
+              <td class="num">{{ row.item.reorder_level|qty }}</td>
+              <td>{% if row.low %}<span class="status status-warning"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i> Low stock</span>{% else %}<span class="status status-success"><i class="bi bi-check-circle" aria-hidden="true"></i> OK</span>{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state"><i class="bi bi-box-seam" aria-hidden="true"></i><div class="title">No shop items yet</div><div>The Dealer adds lubricants and other items first.</div></div>
+  {% endif %}
+</div>
+
+<div class="card table-card">
+  <div class="card-header">Recent movements</div>
+  {% if movements %}
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead><tr><th scope="col">Date</th><th scope="col">Item</th><th scope="col">Outlet</th><th scope="col">Type</th><th scope="col" class="num">Quantity</th><th scope="col" class="num">Amount</th><th scope="col">By</th></tr></thead>
+        <tbody>
+          {% for m in movements %}
+            <tr>
+              <td class="text-nowrap">{{ m.moved_on|date:"d M Y" }}</td><td>{{ m.item.name }}</td><td>{{ m.outlet.code }}</td>
+              <td>{{ m.get_kind_display }}</td><td class="num">{{ m.quantity|qty }}</td><td class="num">{{ m.amount|inr }}</td>
+              <td>{{ m.entered_by.get_full_name|default:m.entered_by.username }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state"><i class="bi bi-arrow-left-right" aria-hidden="true"></i><div class="title">No movements yet</div></div>
+  {% endif %}
+</div>
+{% endblock %}

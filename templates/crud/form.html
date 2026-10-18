@@ -1,0 +1,39 @@
+{% extends "layouts/app.html" %}
+{% block title %}{{ page_title }}{% endblock %}
+{% block breadcrumb %}{{ business.name }}{% if page_subtitle %} / {{ page_subtitle }}{% endif %}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>{{ page_title }}</h1>
+    {% if page_subtitle %}<p class="subtitle">{{ page_subtitle }}</p>{% endif %}
+  </div>
+</div>
+
+<div class="card form-card">
+  <form method="post">
+    {% csrf_token %}
+    <div class="card-body">
+      {% if form.non_field_errors %}
+        <div class="alert alert-danger" role="alert">
+          <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+          <div>{% for error in form.non_field_errors %}<div>{{ error }}</div>{% endfor %}</div>
+        </div>
+      {% endif %}
+      <div class="row gx-3">
+        {% for field in form.visible_fields %}
+          <div class="{% if field.widget_type == 'textarea' or field.widget_type == 'checkbox' or field.widget_type == 'checkboxselectmultiple' %}col-12{% else %}col-md-6{% endif %}">
+            {% include "partials/form_field.html" with field=field %}
+          </div>
+        {% endfor %}
+      </div>
+      {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
+      <p class="small text-muted mb-0"><span aria-hidden="true">*</span> Required</p>
+    </div>
+    <div class="card-footer form-actions">
+      <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancel</a>
+      <button type="submit" class="btn btn-primary" data-busy-text="Saving…">Save</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

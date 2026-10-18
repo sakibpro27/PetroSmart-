@@ -1,0 +1,6 @@
+{% if field.help_text %}<div class="form-text">{{ field.help_text|safe }}</div>{% endif %}
+{% if field.errors %}
+  <div class="errorlist" id="{{ field.auto_id }}-error">
+    {% for error in field.errors %}<div><i class="bi bi-exclamation-circle" aria-hidden="true"></i> {{ error }}</div>{% endfor %}
+  </div>
+{% endif %}

@@ -1,0 +1,23 @@
+{% extends "layouts/app.html" %}
+{% block title %}Reports{% endblock %}
+{% block breadcrumb %}{{ business.name }} / Reports{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Reports</h1>
+    <p class="subtitle">Every report can be viewed on screen or downloaded as Excel or PDF. Only your own business's data is included.</p>
+  </div>
+</div>
+
+<div class="row g-3">
+  {% for report in reports %}
+    <div class="col-md-6 col-xl-4">
+      <a class="card card-body h-100 report-link" href="{% url 'reports:report' report.slug %}">
+        <div class="fw-semibold mb-1">{{ report.title }}</div>
+        <div class="small text-muted">{{ report.description }}</div>
+      </a>
+    </div>
+  {% endfor %}
+</div>
+{% endblock %}

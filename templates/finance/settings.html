@@ -1,0 +1,37 @@
+{% extends "layouts/app.html" %}
+{% block title %}Payments and expense settings{% endblock %}
+{% block breadcrumb %}{{ business.name }} / Payment and expense settings{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Payment methods and expense categories</h1>
+    <p class="subtitle">Used on shift collections, customer payments and expenses.</p>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-6">
+    <div class="card table-card">
+      <div class="card-header d-flex justify-content-between align-items-center"><span>Payment methods</span><a class="btn btn-sm btn-primary" href="{% url 'finance:method_create' %}"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i> Method</a></div>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle">
+          <thead><tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+          <tbody>{% for method in methods %}<tr><td class="fw-medium">{{ method.name }}</td><td>{{ method.get_kind_display }}</td><td>{% include "partials/active_status.html" with active=method.is_active %}</td><td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{% url 'finance:method_edit' method.pk %}">Edit</a></td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+      <div class="card-footer small text-muted">Credit sales are recorded per customer and are not a payment method.</div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card table-card">
+      <div class="card-header d-flex justify-content-between align-items-center"><span>Expense categories</span><a class="btn btn-sm btn-primary" href="{% url 'finance:category_create' %}"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i> Category</a></div>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle">
+          <tbody>{% for category in categories %}<tr><td class="fw-medium">{{ category.name }}</td><td>{% include "partials/active_status.html" with active=category.is_active %}</td><td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{% url 'finance:category_edit' category.pk %}">Edit</a></td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

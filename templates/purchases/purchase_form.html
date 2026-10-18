@@ -1,0 +1,51 @@
+{% extends "layouts/app.html" %}
+{% block title %}{% if purchase %}Edit fuel purchase{% else %}Record fuel purchase{% endif %}{% endblock %}
+{% block breadcrumb %}{{ business.name }} / <a href="{% url 'purchases:purchase_list' %}">Fuel purchases</a>{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>{% if purchase %}Edit fuel purchase{% else %}Record fuel purchase{% endif %}</h1>
+    <p class="subtitle">Enter the invoice as printed, then the litres actually unloaded into each tank.</p>
+  </div>
+</div>
+
+<form method="post">
+  {% csrf_token %}
+  {% if form.non_field_errors %}
+    <div class="alert alert-danger" role="alert"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i><div>{% for error in form.non_field_errors %}<div>{{ error }}</div>{% endfor %}</div></div>
+  {% endif %}
+
+  <div class="card form-card mb-3">
+    <div class="card-header">Invoice</div>
+    <div class="card-body">
+      <div class="row gx-3">
+        {% for field in form.visible_fields %}
+          <div class="{% if field.widget_type == 'textarea' %}col-12{% else %}col-md-6 col-lg-4{% endif %}">{% include "partials/form_field.html" with field=field %}</div>
+        {% endfor %}
+      </div>
+      <p class="small text-muted mb-0">The invoice amount is stored as printed. PetroSmart does not calculate taxes.</p>
+    </div>
+  </div>
+
+  <div class="card form-card mb-3">
+    <div class="card-header">Litres received into tanks</div>
+    <div class="card-body">
+      {{ formset.management_form }}
+      {% if formset.non_form_errors %}<div class="errorlist mb-2">{{ formset.non_form_errors|join:" " }}</div>{% endif %}
+      <p class="small text-muted">Measured at the outlet when unloading. If the tanker filled two tanks, use one row per tank. Leave unused rows empty.</p>
+      {% for allocation in formset %}
+        {% for error in allocation.non_field_errors %}<div class="errorlist"><i class="bi bi-exclamation-circle" aria-hidden="true"></i> {{ error }}</div>{% endfor %}
+        <div class="row gx-3">
+          <div class="col-md-7">{% include "partials/form_field.html" with field=allocation.tank %}</div>
+          <div class="col-md-5">{% include "partials/form_field.html" with field=allocation.litres %}</div>
+        </div>
+      {% endfor %}
+    </div>
+    <div class="card-footer form-actions">
+      <a class="btn btn-outline-secondary" href="{% if purchase %}{{ purchase.get_absolute_url }}{% else %}{% url 'purchases:purchase_list' %}{% endif %}">Cancel</a>
+      <button type="submit" class="btn btn-primary" data-busy-text="Saving…">Save purchase</button>
+    </div>
+  </div>
+</form>
+{% endblock %}

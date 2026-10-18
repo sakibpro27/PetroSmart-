@@ -1,0 +1,60 @@
+{% extends "layouts/app.html" %}
+{% block title %}Reminders{% endblock %}
+{% block breadcrumb %}{{ business.name }} / Reminders{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Compliance and maintenance reminders</h1>
+    <p class="subtitle">Due dates you enter for licences, calibration, safety checks and maintenance. PetroSmart reminds you; it does not know the rules of any authority.</p>
+  </div>
+  {% if user.is_dealer %}<a class="btn btn-primary" href="{% url 'operations:reminder_create' %}"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i> Add reminder</a>{% endif %}
+</div>
+
+<div class="card table-card mb-4">
+  <div class="card-header">Open</div>
+  {% if open_reminders %}
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead><tr><th scope="col">Due</th><th scope="col">Reminder</th><th scope="col">Outlet</th><th scope="col">Repeats</th><th scope="col">Status</th>{% if user.is_dealer %}<th scope="col"><span class="visually-hidden">Actions</span></th>{% endif %}</tr></thead>
+        <tbody>
+          {% for r in open_reminders %}
+            <tr>
+              <td class="text-nowrap">{{ r.due_date|date:"d M Y" }}</td>
+              <td><span class="fw-medium">{{ r.title }}</span><div class="small text-muted">{{ r.get_category_display }}{% if r.notes %} · {{ r.notes|truncatechars:80 }}{% endif %}</div></td>
+              <td>{{ r.outlet.code|default:"All" }}</td>
+              <td>{% if r.repeat_months %}Every {{ r.repeat_months }} month{{ r.repeat_months|pluralize }}{% else %}—{% endif %}</td>
+              <td>
+                {% if r.days_left < 0 %}<span class="status status-danger"><i class="bi bi-exclamation-octagon" aria-hidden="true"></i> Overdue by {{ r.days_overdue }} day{{ r.days_overdue|pluralize }}</span>
+                {% elif r.days_left <= due_soon_days %}<span class="status status-warning"><i class="bi bi-alarm" aria-hidden="true"></i> Due in {{ r.days_left }} day{{ r.days_left|pluralize }}</span>
+                {% else %}<span class="status status-neutral">Upcoming</span>{% endif %}
+              </td>
+              {% if user.is_dealer %}
+                <td class="text-end text-nowrap">
+                  <a class="btn btn-sm btn-outline-secondary" href="{% url 'operations:reminder_edit' r.pk %}">Edit</a>
+                  <form method="post" action="{% url 'operations:reminder_complete' r.pk %}" class="d-inline" data-confirm="Mark '{{ r.title }}' as done?{% if r.repeat_months %} The next one will be scheduled automatically.{% endif %}">
+                    {% csrf_token %}<button type="submit" class="btn btn-sm btn-primary">Done</button>
+                  </form>
+                </td>
+              {% endif %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state"><i class="bi bi-calendar-check" aria-hidden="true"></i><div class="title">Nothing due</div></div>
+  {% endif %}
+</div>
+
+{% if done %}
+  <div class="card table-card">
+    <div class="card-header">Recently completed</div>
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <tbody>{% for r in done %}<tr><td>{{ r.title }}</td><td>{{ r.outlet.code|default:"All" }}</td><td class="small">Due {{ r.due_date|date:"d M Y" }} · done {{ r.completed_on|date:"d M Y" }} by {{ r.completed_by.get_full_name|default:r.completed_by.username }}</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}

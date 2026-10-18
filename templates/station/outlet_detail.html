@@ -1,0 +1,176 @@
+{% extends "layouts/app.html" %}
+{% block title %}{{ outlet.name }}{% endblock %}
+{% block breadcrumb %}{{ business.name }} / <a href="{% url 'station:outlet_list' %}">Outlets</a> / {{ outlet.code }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>{{ outlet.name }} {% include "partials/active_status.html" with active=outlet.is_active %}</h1>
+    <p class="subtitle">{{ outlet.code }}{% if outlet.oil_company %} · {{ outlet.oil_company }}{% endif %}{% if outlet.address %} · {{ outlet.address }}{% endif %}</p>
+  </div>
+  <a class="btn btn-outline-secondary" href="{% url 'station:outlet_edit' outlet.pk %}"><i class="bi bi-pencil me-1" aria-hidden="true"></i> Edit outlet</a>
+</div>
+
+{# --- Selling prices --- #}
+<div class="card table-card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>Selling prices</span>
+    <a class="btn btn-sm btn-primary" href="{% url 'station:price_create' outlet.pk %}"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i> Set price</a>
+  </div>
+  <div class="table-responsive">
+    <table class="table align-middle">
+      <thead>
+        <tr><th scope="col">Product</th><th scope="col" class="num">Price today (₹/L)</th><th scope="col">Since</th><th scope="col">Next change</th></tr>
+      </thead>
+      <tbody>
+        {% for row in price_rows %}
+          <tr>
+            <td class="fw-medium">{{ row.product.name }}</td>
+            <td class="num">{% if row.current %}{{ row.current.price_per_litre }}{% else %}<span class="status status-warning"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i> Not set</span>{% endif %}</td>
+            <td>{{ row.current.effective_from|date:"d M Y"|default:"—" }}</td>
+            <td>{% if row.upcoming %}₹{{ row.upcoming.price_per_litre }} from {{ row.upcoming.effective_from|date:"d M Y" }}{% else %}—{% endif %}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="4" class="text-muted">No active fuel products. <a href="{% url 'station:product_list' %}">Manage products</a>.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if price_history %}
+    <details class="price-history">
+      <summary>Price history (latest 10)</summary>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead><tr><th scope="col">Product</th><th scope="col">From</th><th scope="col" class="num">₹/L</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+          <tbody>
+            {% for price in price_history %}
+              <tr>
+                <td>{{ price.product.name }}</td>
+                <td>{{ price.effective_from|date:"d M Y" }}</td>
+                <td class="num">{{ price.price_per_litre }}</td>
+                <td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{% url 'station:price_edit' price.pk %}">Edit</a></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  {% endif %}
+</div>
+
+<div class="row g-4">
+  {# --- Dispensers and nozzles --- #}
+  <div class="col-xl-7">
+    <div class="card table-card mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+        <span>Dispensers and nozzles</span>
+        <span class="d-flex gap-2">
+          <a class="btn btn-sm btn-outline-secondary" href="{% url 'station:dispenser_create' outlet.pk %}"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i> Dispenser</a>
+          {% if dispensers %}<a class="btn btn-sm btn-primary" href="{% url 'station:nozzle_create' outlet.pk %}"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i> Nozzle</a>{% endif %}
+        </span>
+      </div>
+      {% if nozzles %}
+        <div class="table-responsive">
+          <table class="table table-hover align-middle">
+            <thead>
+              <tr><th scope="col">Nozzle</th><th scope="col">Dispenser</th><th scope="col">Product</th><th scope="col">Tank</th><th scope="col" class="num">Starting reading (L)</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr>
+            </thead>
+            <tbody>
+              {% for nozzle in nozzles %}
+                <tr>
+                  <td class="fw-medium">{{ nozzle.code }}</td>
+                  <td>{{ nozzle.dispenser.code }}</td>
+                  <td><span class="fuel-tag fuel-{{ nozzle.product.category|lower }}">{{ nozzle.product.code }}</span></td>
+                  <td>{% if nozzle.tank %}{{ nozzle.tank.code }}{% else %}<span class="status status-warning"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i> Not linked</span>{% endif %}</td>
+                  <td class="num">{{ nozzle.initial_reading }}</td>
+                  <td>{% include "partials/active_status.html" with active=nozzle.is_active %}</td>
+                  <td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{% url 'station:nozzle_edit' nozzle.pk %}">Edit</a></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty-state">
+          <i class="bi bi-fuel-pump" aria-hidden="true"></i>
+          <div class="title">No nozzles yet</div>
+          <div>{% if dispensers %}Add a nozzle for each hose on your dispensers.{% else %}Add a dispenser first, then its nozzles.{% endif %}</div>
+        </div>
+      {% endif %}
+      {% if dispensers %}
+        <div class="card-footer small">
+          <span class="text-muted me-2">Dispensers:</span>
+          {% for dispenser in dispensers %}
+            <a class="me-3 text-nowrap" href="{% url 'station:dispenser_edit' dispenser.pk %}">{{ dispenser.code }}{% if not dispenser.is_active %} (inactive){% endif %}</a>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# --- Shifts and tanks --- #}
+  <div class="col-xl-5">
+    <div class="card table-card mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Tanks</span>
+        <a class="btn btn-sm btn-primary" href="{% url 'station:tank_create' outlet.pk %}"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i> Tank</a>
+      </div>
+      {% if tanks %}
+        <div class="table-responsive">
+          <table class="table table-hover align-middle">
+            <thead><tr><th scope="col">Tank</th><th scope="col">Product</th><th scope="col" class="num">Capacity (L)</th><th scope="col" class="num">Nozzles</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+            <tbody>
+              {% for tank in tanks %}
+                <tr>
+                  <td class="fw-medium">{{ tank.code }}</td>
+                  <td><span class="fuel-tag fuel-{{ tank.product.category|lower }}">{{ tank.product.code }}</span></td>
+                  <td class="num">{{ tank.capacity_litres }}</td>
+                  <td class="num">{{ tank.nozzle_count }}</td>
+                  <td>{% include "partials/active_status.html" with active=tank.is_active %}</td>
+                  <td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{% url 'station:tank_edit' tank.pk %}">Edit</a></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty-state">
+          <i class="bi bi-database" aria-hidden="true"></i>
+          <div class="title">No tanks yet</div>
+          <div>Add the outlet's underground tanks, then link each nozzle to its tank.</div>
+        </div>
+      {% endif %}
+    </div>
+
+    <div class="card table-card mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Shifts</span>
+        <a class="btn btn-sm btn-primary" href="{% url 'station:shift_create' outlet.pk %}"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i> Shift</a>
+      </div>
+      {% if shifts %}
+        <div class="table-responsive">
+          <table class="table table-hover align-middle">
+            <thead><tr><th scope="col">Shift</th><th scope="col">Time</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+            <tbody>
+              {% for shift in shifts %}
+                <tr>
+                  <td class="fw-medium">{{ shift.name }}</td>
+                  <td class="text-nowrap">{{ shift.start_time|time:"H:i" }}–{{ shift.end_time|time:"H:i" }}{% if shift.crosses_midnight %} <span class="small text-muted">(next day)</span>{% endif %}</td>
+                  <td>{% include "partials/active_status.html" with active=shift.is_active %}</td>
+                  <td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{% url 'station:shift_edit' shift.pk %}">Edit</a></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty-state">
+          <i class="bi bi-clock" aria-hidden="true"></i>
+          <div class="title">No shifts yet</div>
+          <div>Daily Sales are recorded per shift.</div>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "layouts/app.html" %}
+{% block title %}Business profile{% endblock %}
+{% block breadcrumb %}{{ business.name }} / Business profile{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Business profile</h1>
+    <p class="subtitle">Contact details shown on your reports.</p>
+  </div>
+  <a class="btn btn-primary" href="{% url 'station:business_edit' %}"><i class="bi bi-pencil me-1" aria-hidden="true"></i> Edit profile</a>
+</div>
+
+<div class="card form-card">
+  <div class="card-body">
+    <dl class="detail-list">
+      <dt>Business name</dt><dd>{{ business.name }}</dd>
+      <dt>Registered name</dt><dd>{{ business.legal_name|default:"—" }}</dd>
+      <dt>Phone</dt><dd>{{ business.contact_phone|default:"—" }}</dd>
+      <dt>Email</dt><dd>{{ business.contact_email|default:"—" }}</dd>
+      <dt>Address</dt><dd>{{ business.address|default:"—"|linebreaksbr }}</dd>
+      <dt>Plan</dt><dd>{{ business.plan.name }} · <a href="{% url 'tenants:subscription' %}">View subscription</a></dd>
+    </dl>
+  </div>
+</div>
+{% endblock %}

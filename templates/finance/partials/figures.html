@@ -1,0 +1,24 @@
+{% load ps_format %}
+<div class="row g-3 mb-4">
+  <div class="col-6 col-xl-3"><div class="stat"><div class="stat-label">Money collected</div><div class="stat-value">{{ figures.payments|inr }}</div><div class="stat-meta">Cash, UPI, card and other</div></div></div>
+  <div class="col-6 col-xl-3"><div class="stat"><div class="stat-label">Credit sales</div><div class="stat-value">{{ figures.credit|inr }}</div><div class="stat-meta">Added to customer balances</div></div></div>
+  <div class="col-6 col-xl-3">
+    <div class="stat">
+      <div class="stat-label">Shift sales value</div>
+      <div class="stat-value">{% if figures.sales_value is None %}—{% else %}{{ figures.sales_value|inr }}{% endif %}</div>
+      <div class="stat-meta">{% if figures.sales_sheet %}<a href="{{ figures.sales_sheet.get_absolute_url }}">Daily Sales</a> · {{ figures.sales_sheet.get_status_display }}{% else %}No Daily Sales sheet yet{% endif %}</div>
+    </div>
+  </div>
+  <div class="col-6 col-xl-3">
+    <div class="stat">
+      <div class="stat-label">Short / excess</div>
+      <div class="stat-value">{% if figures.difference is None %}—{% else %}{{ figures.difference|inr }}{% endif %}</div>
+      <div class="stat-meta">
+        {% if figures.difference is None %}Shown once sales are entered
+        {% elif figures.difference < 0 %}<span class="status status-danger"><i class="bi bi-arrow-down" aria-hidden="true"></i> Short</span>
+        {% elif figures.difference > 0 %}<span class="status status-warning"><i class="bi bi-arrow-up" aria-hidden="true"></i> Excess</span>
+        {% else %}<span class="status status-success"><i class="bi bi-check-circle" aria-hidden="true"></i> Matches</span>{% endif %}
+      </div>
+    </div>
+  </div>
+</div>

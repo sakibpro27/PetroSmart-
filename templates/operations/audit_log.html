@@ -1,0 +1,52 @@
+{% extends "layouts/app.html" %}
+{% block title %}Audit log{% endblock %}
+{% block breadcrumb %}{{ business.name }} / Audit log{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div><h1>Audit log</h1><p class="subtitle">Every important action in your business. Entries can never be changed or deleted.</p></div>
+</div>
+
+<form method="get" class="card card-body mb-3 filter-bar">
+  <div class="row g-2 align-items-end">
+    <div class="col-sm-6 col-lg-2">{% include "partials/form_field.html" with field=filter_form.date_from %}</div>
+    <div class="col-sm-6 col-lg-2">{% include "partials/form_field.html" with field=filter_form.date_to %}</div>
+    <div class="col-sm-6 col-lg-2">{% include "partials/form_field.html" with field=filter_form.user %}</div>
+    <div class="col-sm-6 col-lg-2">{% include "partials/form_field.html" with field=filter_form.action %}</div>
+    <div class="col-sm-8 col-lg-2">{% include "partials/form_field.html" with field=filter_form.q %}</div>
+    <div class="col-sm-4 col-lg-2 mb-3"><button type="submit" class="btn btn-outline-secondary w-100" data-no-busy>Filter</button></div>
+  </div>
+</form>
+
+<div class="card table-card">
+  {% if entries %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead><tr><th scope="col">When</th><th scope="col">Who</th><th scope="col">Action</th><th scope="col">What</th><th scope="col">Details</th></tr></thead>
+        <tbody>
+          {% for entry in entries %}
+            <tr>
+              <td class="text-nowrap small">{{ entry.created_at|date:"d M Y, H:i" }}</td>
+              <td>{{ entry.user.get_full_name|default:entry.user.username|default:"—" }}</td>
+              <td>{% if entry.action == "LOGIN_FAILED" or entry.action == "DELETE" or entry.action == "REJECT" %}<span class="status status-danger">{{ entry.get_action_display }}</span>{% elif entry.action == "APPROVE" or entry.action == "CORRECT" %}<span class="status status-success">{{ entry.get_action_display }}</span>{% else %}<span class="status status-neutral">{{ entry.get_action_display }}</span>{% endif %}</td>
+              <td>{{ entry.description }}</td>
+              <td class="small">{% if entry.changes %}<details><summary class="text-muted">Show</summary><pre class="audit-changes">{{ entry.changes|pprint }}</pre></details>{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if is_paginated %}
+      <nav class="card-footer d-flex justify-content-between align-items-center" aria-label="Pages">
+        <span class="small text-muted">Page {{ page_obj.number }} of {{ paginator.num_pages }}</span>
+        <span class="d-flex gap-2">
+          {% if page_obj.has_previous %}<a class="btn btn-sm btn-outline-secondary" href="?{{ query }}&page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}
+          {% if page_obj.has_next %}<a class="btn btn-sm btn-outline-secondary" href="?{{ query }}&page={{ page_obj.next_page_number }}">Next</a>{% endif %}
+        </span>
+      </nav>
+    {% endif %}
+  {% else %}
+    <div class="empty-state"><i class="bi bi-clock-history" aria-hidden="true"></i><div class="title">No entries match</div></div>
+  {% endif %}
+</div>
+{% endblock %}

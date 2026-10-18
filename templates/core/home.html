@@ -1,0 +1,225 @@
+{% extends "layouts/app.html" %}
+{% load static ps_format %}
+{% block title %}Dashboard{% endblock %}
+{% block breadcrumb %}{{ business.name }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Welcome, {{ user.first_name|default:user.username }}</h1>
+    <p class="subtitle">{{ business.name }} · {{ dash.day|date:"l, j F Y" }}</p>
+  </div>
+  <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
+    <div>
+      <label class="form-label small mb-1" for="f-day">Day</label>
+      <input class="form-control form-control-sm" type="date" id="f-day" name="day" value="{{ dash.day|date:'Y-m-d' }}" max="{{ today|date:'Y-m-d' }}">
+    </div>
+    <div>
+      <label class="form-label small mb-1" for="f-outlet">Outlet</label>
+      <select class="form-select form-select-sm" id="f-outlet" name="outlet">
+        <option value="">All my outlets</option>
+        {% for outlet in outlet_choices %}<option value="{{ outlet.pk }}" {% if selected_outlet == outlet.pk|stringformat:"s" %}selected{% endif %}>{{ outlet.name }} ({{ outlet.code }})</option>{% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-sm btn-outline-secondary" data-no-busy>Show</button>
+  </form>
+</div>
+
+{# --- Work waiting --- #}
+{% with p=dash.pending %}
+{% if p.sales_drafts or p.sales_submitted or p.corrections or p.stock_submitted %}
+  <div class="card mb-4">
+    <div class="card-body d-flex flex-wrap gap-2 align-items-center">
+      <span class="fw-semibold me-2">Needs attention:</span>
+      {% if p.sales_drafts %}<a class="btn btn-sm btn-outline-secondary" href="{% url 'sales:sheet_list' %}?status=DRAFT"><i class="bi bi-pencil me-1" aria-hidden="true"></i> {{ p.sales_drafts }} draft sales sheet{{ p.sales_drafts|pluralize }}</a>{% endif %}
+      {% if p.sales_submitted %}<a class="btn btn-sm {% if user.is_dealer %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="{% if user.is_dealer %}{% url 'sales:approvals' %}{% else %}{% url 'sales:sheet_list' %}?status=SUBMITTED{% endif %}"><i class="bi bi-hourglass-split me-1" aria-hidden="true"></i> {{ p.sales_submitted }} sales sheet{{ p.sales_submitted|pluralize }} awaiting approval</a>{% endif %}
+      {% if p.corrections %}<a class="btn btn-sm btn-outline-secondary" href="{% if user.is_dealer %}{% url 'sales:approvals' %}{% else %}{% url 'sales:sheet_list' %}{% endif %}"><i class="bi bi-pencil-square me-1" aria-hidden="true"></i> {{ p.corrections }} correction{{ p.corrections|pluralize }} pending</a>{% endif %}
+      {% if p.stock_submitted %}<a class="btn btn-sm btn-outline-secondary" href="{% url 'stock:sheet_list' %}"><i class="bi bi-database me-1" aria-hidden="true"></i> {{ p.stock_submitted }} stock sheet{{ p.stock_submitted|pluralize }} awaiting approval</a>{% endif %}
+    </div>
+  </div>
+{% endif %}
+{% endwith %}
+
+{% if due_reminders %}
+  <div class="alert alert-warning" role="status">
+    <i class="bi bi-alarm" aria-hidden="true"></i>
+    <div>
+      <strong>Reminders due:</strong>
+      {% for r in due_reminders|slice:":4" %}{{ r.title }} ({% if r.due_date < today %}overdue since{% else %}due{% endif %} {{ r.due_date|date:"d M" }}){% if not forloop.last %}; {% endif %}{% endfor %}{% if due_reminders|length > 4 %} and {{ due_reminders|length|add:"-4" }} more{% endif %}.
+      <a href="{% url 'operations:reminder_list' %}">View reminders</a>
+    </div>
+  </div>
+{% endif %}
+
+{# --- Sales tiles: testing litres separate from customer sales --- #}
+<div class="row g-3 mb-2">
+  {% for category, row in dash.sales.items %}
+    <div class="col-sm-6 col-xl-3">
+      <div class="stat">
+        <div class="stat-label"><span class="fuel-tag fuel-{{ category|lower }} me-1">{{ category }}</span> net customer sales</div>
+        <div class="stat-value">{{ row.net_sales_litres|qty }} L</div>
+        <div class="stat-meta">{{ row.sales_value|inr }} · testing {{ row.testing_litres|qty }} L</div>
+      </div>
+    </div>
+  {% endfor %}
+  <div class="col-sm-6 col-xl-2"><div class="stat"><div class="stat-label">Total nozzle delivery</div><div class="stat-value">{{ dash.totals.total_delivery|qty }} L</div><div class="stat-meta">Includes testing</div></div></div>
+  <div class="col-sm-6 col-xl-2"><div class="stat"><div class="stat-label">Testing litres</div><div class="stat-value">{{ dash.totals.testing_litres|qty }} L</div><div class="stat-meta">Not counted as sales</div></div></div>
+  <div class="col-sm-12 col-xl-2"><div class="stat"><div class="stat-label">Customer sales value</div><div class="stat-value">{{ dash.totals.sales_value|inr }}</div><div class="stat-meta">{{ dash.totals.net_sales_litres|qty }} L net</div></div></div>
+</div>
+<p class="small text-muted mb-4">
+  Includes sheets that are submitted or approved (not drafts).
+  {% if dash.awaiting_today %}{{ dash.awaiting_today }} of this day's sheet{{ dash.awaiting_today|pluralize }} still await{{ dash.awaiting_today|pluralize:"s," }} the Dealer's approval.{% endif %}
+</p>
+
+<div class="row g-4 mb-4">
+  <div class="col-xl-8">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span>Net customer sales, last 14 days (L)</span>
+        <span class="chart-legend small fw-normal">
+          <span><i class="legend-swatch" style="background: var(--ps-chart-ms)"></i> MS (Petrol)</span>
+          <span><i class="legend-swatch" style="background: var(--ps-chart-hsd)"></i> HSD (Diesel)</span>
+        </span>
+      </div>
+      <div class="card-body">
+        <div class="chart-box"><canvas id="sales-chart" role="img" aria-label="Bar chart of net customer sales litres per day for MS and HSD over the last 14 days. A table version follows."></canvas></div>
+        <details class="mt-2 small">
+          <summary class="text-muted">Show as table</summary>
+          <div class="table-responsive mt-2">
+            <table class="table table-sm">
+              <thead><tr><th scope="col">Date</th><th scope="col" class="num">MS (L)</th><th scope="col" class="num">HSD (L)</th></tr></thead>
+              <tbody>{% for row in dash.chart.rows %}<tr><td>{{ row.date|date:"d M" }}</td><td class="num">{{ row.ms|qty }}</td><td class="num">{{ row.hsd|qty }}</td></tr>{% endfor %}</tbody>
+            </table>
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+  <div class="col-xl-4">
+    <div class="card h-100">
+      <div class="card-header">Money received on {{ dash.day|date:"d M" }}</div>
+      <div class="card-body">
+        {% if dash.payments.rows or dash.payments.credit %}
+          <div class="chart-box chart-box-sm"><canvas id="payments-chart" role="img" aria-label="Bar chart of the day's collections by payment method. A table version follows."></canvas></div>
+        {% endif %}
+        <table class="table table-sm mt-2 mb-0">
+          <tbody>
+            {% for row in dash.payments.rows %}<tr><td>{{ row.method__name }}</td><td class="num">{{ row.total|inr }}</td></tr>{% empty %}<tr><td class="text-muted">No collections recorded</td></tr>{% endfor %}
+            <tr><td>Credit sales</td><td class="num">{{ dash.payments.credit|inr }}</td></tr>
+          </tbody>
+        </table>
+        <dl class="detail-list mt-3 mb-0 small">
+          <dt>Expenses this month</dt><dd>{{ dash.month_expenses|inr }}</dd>
+          {% if dash.outstanding is not None %}<dt>Outstanding credit</dt><dd><a href="{% url 'finance:customer_list' %}">{{ dash.outstanding|inr }}</a></dd>{% endif %}
+        </dl>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4 mb-4">
+  <div class="col-xl-6">
+    <div class="card table-card h-100">
+      <div class="card-header">Fuel stock by tank <span class="small text-muted fw-normal">(latest dip)</span></div>
+      {% if dash.tanks %}
+        <div class="table-responsive">
+          <table class="table align-middle">
+            <thead><tr><th scope="col">Tank</th><th scope="col" class="num">Stock (L)</th><th scope="col" style="min-width: 9rem">Fill</th><th scope="col">As of</th></tr></thead>
+            <tbody>
+              {% for row in dash.tanks %}
+                <tr>
+                  <td>{{ row.tank.outlet.code }} · <span class="fw-medium">{{ row.tank.code }}</span> <span class="fuel-tag fuel-{{ row.tank.product.category|lower }} ms-1">{{ row.tank.product.code }}</span></td>
+                  <td class="num">{{ row.measured|qty }}</td>
+                  <td>{% if row.percent is not None %}<div class="meter" role="meter" aria-valuenow="{{ row.percent }}" aria-valuemin="0" aria-valuemax="100" aria-label="{{ row.tank.code }} {{ row.percent }}% full"><span class="meter-fill fuel-bg-{{ row.tank.product.category|lower }}" style="width: {{ row.percent }}%"></span></div><span class="small text-muted">{{ row.percent }}% of {{ row.tank.capacity_litres|qty }} L</span>{% else %}<span class="small text-muted">No dip yet</span>{% endif %}</td>
+                  <td class="small text-nowrap">{{ row.as_of|date:"d M"|default:"—" }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty-state"><i class="bi bi-database" aria-hidden="true"></i><div class="title">No tanks set up</div></div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-xl-6">
+    <div class="card table-card h-100">
+      <div class="card-header d-flex justify-content-between"><span>Recent fuel deliveries</span><a class="small fw-normal" href="{% url 'purchases:purchase_list' %}">All deliveries</a></div>
+      {% if dash.deliveries %}
+        <div class="table-responsive">
+          <table class="table align-middle">
+            <tbody>
+              {% for purchase in dash.deliveries %}
+                <tr>
+                  <td class="text-nowrap">{{ purchase.delivery_date|date:"d M" }}</td>
+                  <td><a href="{{ purchase.get_absolute_url }}">{{ purchase.invoice_number }}</a><div class="small text-muted">{{ purchase.supplier.name }} · {{ purchase.outlet.code }}</div></td>
+                  <td><span class="fuel-tag fuel-{{ purchase.product.category|lower }}">{{ purchase.product.code }}</span></td>
+                  <td class="num">{{ purchase.invoiced_litres|qty }} L</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty-state"><i class="bi bi-truck" aria-hidden="true"></i><div class="title">No deliveries recorded</div></div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="{% if user.is_dealer %}col-xl-6{% else %}col-12{% endif %}">
+    <div class="card table-card h-100">
+      <div class="card-header">Exceptions in the last 30 days</div>
+      {% if dash.exceptions.flagged_stock or dash.exceptions.meter_resets %}
+        <div class="table-responsive">
+          <table class="table align-middle">
+            <tbody>
+              {% for line in dash.exceptions.flagged_stock %}
+                <tr><td><span class="status status-danger"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i> Stock variation</span></td><td>{{ line.sheet.outlet.code }} · {{ line.tank.code }} · {{ line.sheet.business_date|date:"d M" }}</td><td class="num">{{ line.variation|qty }} L</td><td><a href="{{ line.sheet.get_absolute_url }}">View</a></td></tr>
+              {% endfor %}
+              {% for line in dash.exceptions.meter_resets %}
+                <tr><td><span class="status status-warning"><i class="bi bi-arrow-repeat" aria-hidden="true"></i> Meter reset</span></td><td>{{ line.sheet.outlet.code }} · {{ line.nozzle.code }} · {{ line.sheet.business_date|date:"d M" }} {{ line.sheet.shift.name }}</td><td class="small">{{ line.notes|truncatechars:40 }}</td><td><a href="{{ line.sheet.get_absolute_url }}">View</a></td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty-state"><i class="bi bi-shield-check" aria-hidden="true"></i><div class="title">No exceptions</div><div>No stock variations beyond tank limits and no meter resets.</div></div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if user.is_dealer %}
+    <div class="col-xl-6">
+      <div class="card table-card h-100">
+        <div class="card-header">Recent activity</div>
+        {% if recent_activity %}
+          <div class="table-responsive">
+            <table class="table align-middle">
+              <tbody>
+                {% for entry in recent_activity %}
+                  <tr>
+                    <td><div>{{ entry.description }}</div><div class="small text-muted">{{ entry.created_at|date:"d M Y, H:i" }}</div></td>
+                    <td class="text-end">{% if entry.action == "LOGIN_FAILED" %}<span class="status status-danger"><i class="bi bi-x-circle" aria-hidden="true"></i> {{ entry.get_action_display }}</span>{% else %}<span class="status status-neutral">{{ entry.get_action_display }}</span>{% endif %}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="empty-state"><i class="bi bi-clock-history" aria-hidden="true"></i><div class="title">No activity yet</div></div>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+</div>
+
+{{ dash.chart|json_script:"sales-chart-data" }}
+{{ dash.payments.chart|json_script:"payments-chart-data" }}
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="{% static 'js/dashboard.js' %}"></script>
+{% endblock %}
