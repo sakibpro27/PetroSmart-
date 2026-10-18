@@ -125,6 +125,13 @@
     </div>
   </div>
 
+  {% if payment_lines %}
+    {% include "sales/partials/payments_entry.html" %}
+  {% elif collection %}
+    {# Collections already verified by the Dealer: shown but locked. #}
+    {% include "sales/partials/payments_summary.html" with payment_lines=collection.lines.all credit_sales=collection.credit_sales.all %}
+  {% endif %}
+
   <div class="card form-card mb-3">
     <div class="card-body">
       {% include "partials/form_field.html" with field=notes_form.notes %}

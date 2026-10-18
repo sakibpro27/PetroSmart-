@@ -79,6 +79,45 @@
     table.querySelector('[data-total="delivery"]').textContent = complete ? format(totals.delivery) : "—";
     table.querySelector('[data-total="net"]').textContent = complete ? format(totals.net) : "—";
     table.querySelector('[data-total="value"]').textContent = complete ? "₹" + format(totals.value) : "—";
+    refreshPayments(complete ? totals.value : null);
+  }
+
+  // Payment breakdown: cash expected = sales value - non-cash payments - credit sales.
+  var payments = document.querySelector("[data-payments]");
+
+  function refreshPayments(salesValue) {
+    if (!payments) return;
+    function amount(input) {
+      var value = hundredths(input.value);
+      return value === null ? 0 : value;
+    }
+    var cash = 0, nonCash = 0, credit = 0;
+    payments.querySelectorAll("tr[data-kind]").forEach(function (row) {
+      var input = row.querySelector('[data-role="amount"]');
+      if (row.dataset.kind === "CASH") cash += amount(input); else nonCash += amount(input);
+    });
+    payments.querySelectorAll('[data-role="credit"]').forEach(function (input) {
+      var removed = input.closest("tr").querySelector('input[type="checkbox"]');
+      if (!removed || !removed.checked) credit += amount(input);
+    });
+    function show(key, text) { payments.querySelector('[data-pay="' + key + '"]').textContent = text; }
+    show("noncash", "₹" + format(nonCash));
+    show("credit", "₹" + format(credit));
+    show("cash", "₹" + format(cash));
+    if (salesValue === null) {
+      ["sales", "expected", "difference"].forEach(function (key) { show(key, "—"); });
+      return;
+    }
+    var expected = salesValue - nonCash - credit;
+    var difference = cash - expected;
+    show("sales", "₹" + format(salesValue));
+    show("expected", "₹" + format(expected));
+    show("difference", difference === 0 ? "Matches" : (difference < 0 ? "Short ₹" : "Excess ₹") + format(Math.abs(difference)));
+  }
+
+  if (payments) {
+    payments.addEventListener("input", refresh);
+    payments.addEventListener("change", refresh);
   }
 
   function showExtra(extra, open) {

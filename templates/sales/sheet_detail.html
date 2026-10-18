@@ -69,6 +69,12 @@
   </div>
 </div>
 
+{% if collection %}
+  {% include "sales/partials/payments_summary.html" %}
+{% elif can_edit %}
+  <div class="alert alert-info"><i class="bi bi-info-circle" aria-hidden="true"></i><div>The cash, UPI, card and credit breakdown is entered on the <a href="{% url 'sales:sheet_edit' sheet.pk %}">entry page</a>.</div></div>
+{% endif %}
+
 <div class="row g-4">
   <div class="col-lg-6">
     <div class="card mb-4">

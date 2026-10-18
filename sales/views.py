@@ -8,6 +8,7 @@ from decimal import Decimal
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Q, Sum
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -15,6 +16,9 @@ from django.utils.functional import cached_property
 from django.views import View
 from django.views.generic import DetailView, FormView, ListView, TemplateView
 
+from finance import services as finance_services
+from finance.forms import CollectionLineFormSet, CreditSaleFormSet
+from finance.models import ShiftCollection
 from tenants.permissions import BusinessMemberRequiredMixin, DealerRequiredMixin
 
 from . import services
@@ -114,33 +118,59 @@ class SheetCreateView(BusinessMemberRequiredMixin, FormView):
 class SheetEditView(SheetMixin, View):
     template_name = "sales/sheet_edit.html"
 
+    @cached_property
+    def collection(self):
+        """The payment breakdown (cash, UPI, card, credit) recorded for this sheet's shift."""
+        return finance_services.collection_for_sheet(self.sheet, self.request.user)
+
     def _forms(self, data=None):
         lines = self.sheet.lines.select_related("nozzle__dispenser", "product").order_by("product__category", "nozzle__code")
-        return (
-            LineFormSet(data, queryset=lines, prefix="lines"),
-            SheetNotesForm(data, instance=self.sheet, prefix="sheet"),
-        )
+        forms = {
+            "formset": LineFormSet(data, queryset=lines, prefix="lines"),
+            "notes_form": SheetNotesForm(data, instance=self.sheet, prefix="sheet"),
+            "payment_lines": None, "credit_sales": None,
+        }
+        # The payment section is optional on save: only process it if it was on the submitted page.
+        if data is not None and "methods-TOTAL_FORMS" not in data:
+            return forms
+        collection = self.collection
+        if collection is not None and finance_services.can_edit_collection(collection, self.request.user):
+            forms["payment_lines"] = CollectionLineFormSet(
+                data, queryset=collection.lines.select_related("method").order_by("method__sort_order"), prefix="methods")
+            forms["credit_sales"] = CreditSaleFormSet(
+                data, queryset=collection.credit_sales.select_related("customer"), prefix="credit",
+                form_kwargs={"business": collection.business})
+        return forms
 
-    def _render(self, formset, notes_form):
+    def _render(self, forms):
+        collection = self.collection  # created on first opening, so the payment fields can be shown
         return render(self.request, self.template_name, {
-            "sheet": self.sheet, "formset": formset, "notes_form": notes_form,
+            "sheet": self.sheet, **forms, "collection": collection,
+            "payment_figures": finance_services.collection_figures(collection) if collection else None,
         })
 
     def get(self, request, *args, **kwargs):
         if not services.can_edit(self.sheet, request.user):
             return redirect(self.sheet)
-        return self._render(*self._forms())
+        return self._render(self._forms())
 
     def post(self, request, *args, **kwargs):
         if not services.can_edit(self.sheet, request.user):
             messages.error(request, "This sheet can no longer be edited.")
             return redirect(self.sheet)
-        formset, notes_form = self._forms(request.POST)
-        if not (formset.is_valid() and notes_form.is_valid()):
-            messages.error(request, "Some readings need attention. Nothing was saved.")
-            return self._render(formset, notes_form)
+        forms = self._forms(request.POST)
+        if not all(form.is_valid() for form in forms.values() if form is not None):
+            messages.error(request, "Some entries need attention. Nothing was saved.")
+            return self._render(forms)
         try:
-            services.save_draft(self.sheet, formset, notes_form, user=request.user, request=request)
+            with transaction.atomic():
+                services.save_draft(self.sheet, forms["formset"], forms["notes_form"], user=request.user, request=request)
+                if forms["payment_lines"] is not None:
+                    finance_services.save_collection(self.collection, forms["payment_lines"], forms["credit_sales"],
+                                                     None, user=request.user, request=request)
+            over_limit = finance_services.customers_over_limit(self.collection) if forms["payment_lines"] is not None else []
+            for customer in over_limit:
+                messages.warning(request, f"{customer.name} is now over their credit limit of ₹{customer.credit_limit}.")
             if request.POST.get("action") == "submit":
                 services.submit_sheet(self.sheet, user=request.user, request=request)
                 messages.success(request, f"{self.sheet} submitted to the Dealer for approval.")
@@ -182,6 +212,15 @@ class SheetDetailView(SheetMixin, DetailView):
         corrections = sheet.corrections.select_related("requested_by", "reviewed_by").prefetch_related("lines__line__nozzle")
         pending = next((c for c in corrections if c.status == SalesCorrection.Status.PENDING), None)
         totals = product_totals(lines)
+        collection = ShiftCollection.objects.filter(outlet=sheet.outlet, business_date=sheet.business_date,
+                                                    shift=sheet.shift).first()
+        if collection is not None:
+            context.update(
+                collection=collection,
+                payment_figures=finance_services.collection_figures(collection),
+                payment_lines=collection.lines.select_related("method").order_by("method__sort_order"),
+                credit_sales=collection.credit_sales.select_related("customer"),
+            )
         context.update(
             lines=lines,
             product_totals=totals,

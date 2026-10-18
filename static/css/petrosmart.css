@@ -283,6 +283,10 @@ h1, h2, h3, h4, h5, h6 { color: var(--ps-text); font-weight: 600; letter-spacing
 .fuel-bg-ms { background: var(--ps-chart-ms); }
 .fuel-bg-hsd { background: var(--ps-chart-hsd); }
 
+.payment-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.5rem 1rem; }
+.payment-summary > div { display: flex; flex-direction: column; }
+.payment-summary span { font-size: var(--ps-font-size-sm); color: var(--ps-text-muted); }
+.payment-summary strong { font-variant-numeric: tabular-nums; }
 .audit-changes { white-space: pre-wrap; font-size: 0.75rem; max-width: 32rem; margin: 0.3rem 0 0; color: var(--ps-text-muted); }
 .report-link { color: var(--ps-text); text-decoration: none; }
 .report-link:hover { border-color: var(--ps-forest); background: #FCFBF8; }

@@ -60,16 +60,34 @@ def matching_sales(collection):
 
 
 def collection_figures(collection):
-    """Money collected + credit sales, compared with the shift's sales value."""
+    """
+    Money collected + credit sales, compared with the shift's sales value.
+
+        Cash expected = Sales value - (UPI + card + other non-cash) - Credit sales
+        Short / excess = Cash counted - Cash expected
+                       = (all money collected + credit) - Sales value
+    """
     payments = collection.payments_total()
     credit = collection.credit_total()
+    cash = collection.lines.filter(method__kind=PaymentMethod.Kind.CASH).aggregate(total=Sum("amount"))["total"] or ZERO
+    non_cash = payments - cash
     sheet, sales_value = matching_sales(collection)
     accounted = payments + credit
     return {
         "payments": payments, "credit": credit, "accounted": accounted, "sales_sheet": sheet,
-        "sales_value": sales_value,
+        "sales_value": sales_value, "cash": cash, "non_cash": non_cash,
+        "expected_cash": None if sales_value is None else sales_value - non_cash - credit,
         "difference": None if sales_value is None else accounted - sales_value,
     }
+
+
+def collection_for_sheet(sheet, user):
+    """The collection entry for a Daily Sales sheet's outlet, date and shift, created if needed."""
+    collection = ShiftCollection.objects.filter(outlet=sheet.outlet, business_date=sheet.business_date,
+                                                shift=sheet.shift).first()
+    if collection is None and user.accessible_outlets().filter(pk=sheet.outlet_id).exists():
+        collection = create_collection(user=user, shift=sheet.shift, business_date=sheet.business_date)
+    return collection
 
 
 @transaction.atomic
@@ -105,9 +123,11 @@ def save_collection(collection, line_formset, credit_formset, notes_form, *, use
         credit.save()
     for credit in credit_formset.deleted_objects:
         credit.delete()
-    notes_form.save()
+    if notes_form is not None:
+        notes_form.save()
     after = collection_figures(collection)
-    if (before["payments"], before["credit"]) != (after["payments"], after["credit"]) or notes_form.has_changed():
+    notes_changed = notes_form is not None and notes_form.has_changed()
+    if (before["payments"], before["credit"]) != (after["payments"], after["credit"]) or notes_changed:
         AuditLog.record(AuditLog.Action.UPDATE, f"Updated {collection}", user=user, obj=collection, request=request,
                         changes={"payments": [str(before["payments"]), str(after["payments"])],
                                  "credit_sales": [str(before["credit"]), str(after["credit"])],
