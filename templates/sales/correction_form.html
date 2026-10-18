@@ -7,13 +7,14 @@
 <div class="page-header">
   <div>
     <h1>Request a correction</h1>
-    <p class="subtitle">{{ sheet.outlet.code }} · {{ sheet.business_date|date:"d M Y" }} · {{ sheet.shift.name }} shift (approved)</p>
+    <p class="subtitle">{{ sheet.outlet.code }} · {{ sheet.business_date|date:"d M Y" }} · {{ sheet.shift.name }} shift{% if sheet.dispenser %} · {{ sheet.dispenser }}{% endif %}</p>
   </div>
 </div>
 
 <div class="alert alert-info">
   <i class="bi bi-info-circle" aria-hidden="true"></i>
-  <div>Change only the values that are wrong. Nothing changes until the Dealer approves, and the old values are kept in the sheet's history.
+  <div>A later shift card already starts from these closing readings, so this card is corrected here instead of edited.
+  Change only the values that are wrong. The correction is applied immediately and the old values are kept in the card's history.
   If you change a closing reading, the next shift's opening reading for that nozzle is updated too.</div>
 </div>
 
@@ -45,7 +46,7 @@
   <div class="card form-card mb-3"><div class="card-body">{% include "partials/form_field.html" with field=form.reason %}</div></div>
   <div class="d-flex gap-2 justify-content-end">
     <a class="btn btn-outline-secondary" href="{{ sheet.get_absolute_url }}">Cancel</a>
-    <button type="submit" class="btn btn-primary" data-busy-text="Sending…">Send for approval</button>
+    <button type="submit" class="btn btn-primary" data-busy-text="Saving…">Apply correction</button>
   </div>
 </form>
 {% endblock %}

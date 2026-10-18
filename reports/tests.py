@@ -15,7 +15,7 @@ from .definitions import REPORTS
 class ReportTestCase(SalesTestCase):
     def setUp(self):
         super().setUp()
-        self.approved_sheet()  # N1: 20 L delivered, 2 L testing, ₹1,800; N2: 100 L, ₹9,000
+        self.card()  # N1: 20 L delivered, 2 L testing, ₹1,800; N2: 100 L, ₹9,000
         # A second tenant with its own approved sales that must never appear.
         self.other = make_business("Om Sai Petroleum")
         self.other_dealer = make_user("omsai.dealer", self.other, User.Role.DEALER)
@@ -72,7 +72,7 @@ class ReportScreenTests(ReportTestCase):
         self.assertEqual(report.totals[11], D("10800.00"))
 
     def test_other_tenant_sees_none_of_the_rows(self):
-        for slug in ("sales-summary", "nozzle-readings", "tank-stock", "purchases", "collections", "expenses"):
+        for slug in ("sales-summary", "nozzle-readings", "tank-stock", "purchases", "shift-cash", "expenses"):
             with self.subTest(slug=slug):
                 self.assertEqual(self.report(slug, user=self.other_dealer).context["report"].rows, [])
 

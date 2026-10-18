@@ -1,7 +1,8 @@
 """
-Tank stock workflow: creating, refreshing, submitting and approving stock
-sheets, and recording fuel receipts. Rules are checked on the server and every
-change is written to the audit log.
+Tank stock: saving the daily stock sheet (with every tank's dip reading) and
+recording fuel receipts. There is no approval step: a saved sheet is final,
+and only the latest sheet at an outlet can be edited or deleted. Rules are
+checked on the server and every change is written to the audit log.
 """
 
 from decimal import Decimal
@@ -12,14 +13,12 @@ from django.db.models import Q, Sum
 from django.utils import timezone
 
 from audit.models import AuditLog
-from sales.models import DailySalesLine, DailySalesSheet
+from sales.models import DailySalesLine
 from sales.services import viewable_outlets
 from station.models import Tank
 
 from .models import StockLine, StockSheet, TankReceipt
 
-Status = StockSheet.Status
-COUNTED_SALES = (DailySalesSheet.Status.SUBMITTED, DailySalesSheet.Status.APPROVED)
 ZERO = Decimal("0")
 
 
@@ -35,13 +34,17 @@ def can_work_at(user, outlet):
     return user.accessible_outlets().filter(pk=outlet.pk).exists()
 
 
-def can_edit(sheet, user):
-    return sheet.status == Status.DRAFT and can_work_at(user, sheet.outlet)
+def is_latest(sheet):
+    return not StockSheet.objects.filter(outlet=sheet.outlet, business_date__gt=sheet.business_date).exists()
 
 
-def _require_dealer(user):
-    if not user.is_dealer:
-        raise PermissionDenied("Only the Dealer can do this.")
+def can_change(sheet, user):
+    return can_work_at(user, sheet.outlet) and is_latest(sheet)
+
+
+def stock_locked(outlet, day):
+    """Once a day's stock is saved, its receipts and shift cards may no longer change silently."""
+    return StockSheet.objects.filter(outlet=outlet, business_date=day).exists()
 
 
 # --- Where the numbers come from --------------------------------------------
@@ -49,13 +52,11 @@ def _require_dealer(user):
 
 def sales_lines_for_tank(tank, day):
     """
-    Daily Sales lines whose fuel came from `tank` on `day`. Only submitted or
-    approved sheets count. Lines recorded before tanks were set up use the
-    nozzle's current tank.
+    Shift Card lines whose fuel came from `tank` on `day`. Lines recorded
+    before tanks were set up use the nozzle's current tank.
     """
     return DailySalesLine.objects.filter(
-        sheet__outlet=tank.outlet, sheet__business_date=day, sheet__status__in=COUNTED_SALES,
-        closing_reading__isnull=False,
+        sheet__outlet=tank.outlet, sheet__business_date=day, closing_reading__isnull=False,
     ).filter(Q(tank=tank) | Q(tank__isnull=True, nozzle__tank=tank))
 
 
@@ -76,27 +77,20 @@ def movements(tank, day):
 
 
 def day_problems(outlet, day):
-    """Reasons the outlet's stock for `day` cannot be finalised yet."""
-    problems = []
-    drafts = DailySalesSheet.objects.filter(outlet=outlet, business_date=day, status=DailySalesSheet.Status.DRAFT)
-    if drafts.exists():
-        names = ", ".join(sheet.shift.name for sheet in drafts.select_related("shift"))
-        problems.append(f"Daily Sales for the {names} shift are still in Draft. Submit them first.")
+    """Reasons the outlet's stock for `day` cannot be saved yet."""
     unlinked = (
-        DailySalesLine.objects.filter(sheet__outlet=outlet, sheet__business_date=day, sheet__status__in=COUNTED_SALES,
-                                      tank__isnull=True, nozzle__tank__isnull=True, total_delivery__gt=0)
+        DailySalesLine.objects.filter(sheet__outlet=outlet, sheet__business_date=day, tank__isnull=True,
+                                      nozzle__tank__isnull=True, total_delivery__gt=0)
         .values_list("nozzle__code", flat=True).distinct()
     )
     if unlinked:
-        problems.append(
-            f"Nozzle {', '.join(sorted(unlinked))} dispensed fuel but is not linked to a tank. "
-            "The Dealer links nozzles to tanks on the outlet's set-up page."
-        )
-    return problems
+        return [f"Nozzle {', '.join(sorted(unlinked))} dispensed fuel but is not linked to a tank. "
+                "The Dealer links nozzles to tanks on the outlet's set-up page."]
+    return []
 
 
 def stale_tanks(sheet):
-    """Tanks whose receipts or Daily Sales changed after this sheet was submitted."""
+    """Tanks whose receipts or shift cards changed after this sheet was saved."""
     changed = []
     for line in sheet.lines.select_related("tank"):
         live = movements(line.tank, sheet.business_date)
@@ -105,143 +99,108 @@ def stale_tanks(sheet):
     return changed
 
 
-def stock_locked(outlet, day):
-    """Once a day's stock is submitted, its receipts and Daily Sales may no longer change silently."""
-    return StockSheet.objects.filter(outlet=outlet, business_date=day).exclude(status=Status.DRAFT).exists()
-
-
-# --- Stock sheets -------------------------------------------------------------
-
-
-@transaction.atomic
-def create_stock_sheet(*, user, outlet, business_date, request=None):
-    if not can_work_at(user, outlet):
-        raise PermissionDenied("You are not assigned to this outlet.")
-    if business_date > timezone.localdate():
-        raise ValidationError("Stock cannot be recorded for a future date.")
-    latest = (StockSheet.objects.select_for_update().filter(outlet=outlet).order_by("-business_date").first())
-    if latest is not None:
-        if business_date <= latest.business_date:
-            raise ValidationError(
-                f"Stock sheets are entered in date order. The latest one at {outlet.code} is for "
-                f"{latest.business_date:%d %b %Y}."
-            )
-        if latest.status == Status.DRAFT:
-            raise ValidationError(f"Finish and submit the stock sheet for {latest.business_date:%d %b %Y} first.")
-    tanks = list(Tank.objects.for_business(user.business).filter(outlet=outlet, is_active=True).select_related("product"))
-    if not tanks:
-        raise ValidationError("This outlet has no active tanks yet. The Dealer adds them on the outlet's set-up page.")
-
-    sheet = StockSheet.objects.create(business=user.business, outlet=outlet, business_date=business_date, entered_by=user)
+def tank_rows(outlet, day, sheet=None):
+    """
+    One row per tank for the stock sheet form: opening stock (previous measured
+    closing, or the tank's starting stock), today's movements and the
+    calculated closing.
+    """
+    if sheet is not None:
+        tanks = [line.tank for line in sheet.lines.select_related("tank__product")]
+        openings = {line.tank_id: line.opening_stock for line in sheet.lines.all()}
+    else:
+        tanks = list(Tank.objects.filter(outlet=outlet, is_active=True).select_related("product"))
+        openings = {}
+    rows = []
     for tank in tanks:
-        previous = (
-            StockLine.objects.filter(tank=tank, sheet__business_date__lt=business_date)
-            .order_by("-sheet__business_date").first()
-        )
-        StockLine.objects.create(
-            business=user.business, sheet=sheet, tank=tank, product=tank.product,
-            opening_stock=previous.measured_closing if previous else tank.starting_stock,
-            **movements(tank, business_date),
-        )
-    AuditLog.record(AuditLog.Action.CREATE, f"Started {sheet}", user=user, obj=sheet, request=request)
-    return sheet
+        if tank.pk not in openings:
+            previous = (StockLine.objects.filter(tank=tank, sheet__business_date__lt=day)
+                        .order_by("-sheet__business_date").first())
+            openings[tank.pk] = previous.measured_closing if previous else tank.starting_stock
+        moved = movements(tank, day)
+        rows.append({"tank": tank, "opening": openings[tank.pk], **moved,
+                     "calculated": openings[tank.pk] + moved["fuel_received"] - moved["total_delivery"]})
+    return rows
 
 
-def refresh_draft(sheet):
-    """Pull the latest receipts and Daily Sales figures into a Draft sheet."""
-    if sheet.status != Status.DRAFT:
-        return
-    for line in sheet.lines.select_related("tank"):
-        for field, value in movements(line.tank, sheet.business_date).items():
-            setattr(line, field, value)
-        line.save()
+# --- Saving the stock sheet --------------------------------------------------------
 
 
 @transaction.atomic
-def save_draft(sheet, formset, notes_form, *, user, request=None):
-    sheet = StockSheet.objects.select_for_update().get(pk=sheet.pk)
-    if not can_edit(sheet, user):
-        raise ValidationError("This stock sheet can no longer be edited.")
-    line_ids = set(sheet.lines.values_list("pk", flat=True))
-    if any(form.instance.pk not in line_ids for form in formset.forms):
-        raise ValidationError("These readings do not match this sheet. Reload the page and try again.")
-    changes = {
-        form.instance.tank.code: {name: {"from": _plain(form.initial.get(name)), "to": _plain(form.cleaned_data.get(name))}
-                                  for name in form.changed_data}
-        for form in formset.forms if form.has_changed()
-    }
-    formset.save()
-    if notes_form.has_changed():
-        changes["sheet notes"] = notes_form.cleaned_data["notes"]
-        notes_form.save()
-    refresh_draft(sheet)
-    if changes:
-        AuditLog.record(AuditLog.Action.UPDATE, f"Updated dip readings on {sheet}", user=user, obj=sheet,
-                        changes=changes, request=request)
-    return sheet
+def save_stock_sheet(*, user, outlet=None, business_date=None, entries, notes="", sheet=None, request=None):
+    """
+    Create (sheet=None) or update a stock sheet. `entries` maps tank id to
+    (measured_closing, notes) and must cover every tank on the sheet.
+    """
+    is_new = sheet is None
+    if is_new:
+        if not can_work_at(user, outlet):
+            raise PermissionDenied("You are not assigned to this outlet.")
+        if business_date > timezone.localdate():
+            raise ValidationError("Stock cannot be recorded for a future date.")
+        latest = StockSheet.objects.select_for_update().filter(outlet=outlet).order_by("-business_date").first()
+        if latest is not None and business_date <= latest.business_date:
+            raise ValidationError(f"Stock sheets are entered in date order. The latest one at {outlet.code} is for "
+                                  f"{latest.business_date:%d %b %Y}.")
+    else:
+        sheet = StockSheet.objects.select_for_update().select_related("outlet").get(pk=sheet.pk)
+        outlet, business_date = sheet.outlet, sheet.business_date
+        if not can_work_at(user, outlet):
+            raise PermissionDenied("You are not assigned to this outlet.")
+        if not is_latest(sheet):
+            raise ValidationError("A later stock sheet already starts from this measured stock, so it cannot be changed.")
 
-
-def _plain(value):
-    return value if value is None or isinstance(value, bool) else str(value)
-
-
-@transaction.atomic
-def submit_stock_sheet(sheet, *, user, request=None):
-    sheet = StockSheet.objects.select_for_update().get(pk=sheet.pk)
-    if not can_edit(sheet, user):
-        raise ValidationError("Only a Draft stock sheet at your outlet can be submitted.")
-    problems = day_problems(sheet.outlet, sheet.business_date)
+    problems = day_problems(outlet, business_date)
     if problems:
         raise ValidationError(problems)
-    refresh_draft(sheet)
-    lines = list(sheet.lines.select_related("tank"))
-    missing = [line.tank.code for line in lines if line.measured_closing is None]
-    if missing:
-        raise ValidationError(f"Enter the measured (dip) closing stock for tank {', '.join(missing)}.")
-    for line in lines:
+    rows = tank_rows(outlet, business_date, sheet)
+    if not rows:
+        raise ValidationError("This outlet has no active tanks yet. The Dealer adds them on the outlet's set-up page.")
+    if {row["tank"].pk for row in rows} != set(entries):
+        raise ValidationError("The tank rows do not match this outlet. Reload the page and try again.")
+
+    if is_new:
+        sheet = StockSheet.objects.create(business=user.business, outlet=outlet, business_date=business_date,
+                                          notes=notes, entered_by=user)
+        before = {}
+    else:
+        before = {line.tank.code: str(line.measured_closing) for line in sheet.lines.select_related("tank")}
+        sheet.notes, sheet.updated_by = notes, user
+        sheet.save()
+        sheet.lines.all().delete()
+
+    for row in rows:
+        measured, line_notes = entries[row["tank"].pk]
+        line = StockLine(business=sheet.business, sheet=sheet, tank=row["tank"], product=row["tank"].product,
+                         opening_stock=row["opening"], fuel_received=row["fuel_received"],
+                         total_delivery=row["total_delivery"], testing_litres=row["testing_litres"],
+                         measured_closing=measured, notes=line_notes or "")
+        line.calculated_closing = row["calculated"]
         try:
             line.full_clean()
         except ValidationError as error:
-            raise ValidationError(f"Tank {line.tank.code}: {'; '.join(error.messages)}")
-    sheet.status = Status.SUBMITTED
-    sheet.submitted_by, sheet.submitted_at = user, timezone.now()
-    sheet.save()
-    flagged = [line.tank.code for line in lines if line.is_flagged]
-    AuditLog.record(AuditLog.Action.SUBMIT, f"Submitted {sheet} for approval", user=user, obj=sheet,
-                    changes={"flagged_tanks": flagged} if flagged else {}, request=request)
+            raise ValidationError(f"Tank {row['tank'].code}: {'; '.join(error.messages)}")
+        line.save()
+
+    flagged = [line.tank.code for line in sheet.lines.select_related("tank") if line.is_flagged]
+    measured = {line.tank.code: str(line.measured_closing) for line in sheet.lines.select_related("tank")}
+    AuditLog.record(AuditLog.Action.CREATE if is_new else AuditLog.Action.UPDATE,
+                    f"{'Saved' if is_new else 'Edited'} {sheet}", user=user, obj=sheet, request=request,
+                    changes={"measured": measured if is_new else {"from": before, "to": measured},
+                             **({"flagged_tanks": flagged} if flagged else {})})
     return sheet
 
 
 @transaction.atomic
-def approve_stock_sheet(sheet, *, user, request=None):
-    _require_dealer(user)
+def delete_stock_sheet(sheet, *, user, request=None):
     sheet = StockSheet.objects.select_for_update().get(pk=sheet.pk)
-    if sheet.status != Status.SUBMITTED:
-        raise ValidationError("Only a stock sheet awaiting approval can be approved.")
-    sheet.status = Status.APPROVED
-    sheet.approved_by, sheet.approved_at = user, timezone.now()
-    sheet.save(update_fields=["status", "approved_by", "approved_at", "updated_at"])
-    AuditLog.record(AuditLog.Action.APPROVE, f"Approved {sheet}", user=user, obj=sheet, request=request)
-    return sheet
-
-
-@transaction.atomic
-def return_stock_sheet(sheet, *, user, note, request=None):
-    _require_dealer(user)
-    sheet = StockSheet.objects.select_for_update().get(pk=sheet.pk)
-    if sheet.status != Status.SUBMITTED:
-        raise ValidationError("Only a stock sheet awaiting approval can be sent back.")
-    if not note.strip():
-        raise ValidationError("Write a note telling the manager what to check.")
-    if not sheet.is_latest:
-        raise ValidationError("A later stock sheet already starts from this measured stock, so it cannot be sent back.")
-    sheet.status = Status.DRAFT
-    sheet.review_note = note.strip()
-    sheet.submitted_by = sheet.submitted_at = None
-    sheet.save()
-    AuditLog.record(AuditLog.Action.REJECT, f"Sent back {sheet}", user=user, obj=sheet,
-                    changes={"note": sheet.review_note}, request=request)
-    return sheet
+    if not can_work_at(user, sheet.outlet):
+        raise PermissionDenied("You are not assigned to this outlet.")
+    if not is_latest(sheet):
+        raise ValidationError("Only the latest stock sheet at an outlet can be deleted.")
+    AuditLog.record(AuditLog.Action.DELETE, f"Deleted {sheet}", user=user, obj=sheet, request=request,
+                    changes={line.tank.code: str(line.measured_closing) for line in sheet.lines.select_related("tank")})
+    sheet.delete()
 
 
 # --- Fuel receipts ------------------------------------------------------------
@@ -261,7 +220,7 @@ def _check_receipt_allowed(user, tank, day):
         raise ValidationError("A receipt cannot be dated in the future.")
     if stock_locked(tank.outlet, day):
         raise ValidationError(
-            f"Stock for {tank.outlet.code} on {day:%d %b %Y} is already submitted, so its receipts are locked."
+            f"Stock for {tank.outlet.code} on {day:%d %b %Y} is already saved, so its receipts are locked."
         )
 
 

@@ -3,14 +3,14 @@ Daily Sales summaries.
 
 Each row shows total nozzle delivery, testing litres, net customer sales and
 customer sales value separately. Sales litres and value come from NET sales,
-so testing litres are never counted as sales. By default only APPROVED sheets
-are included.
+so testing litres are never counted as sales. Every saved Shift Card is
+included.
 """
 
 from django.db.models import Sum
 from django.db.models.functions import TruncMonth
 
-from .models import DailySalesLine, DailySalesSheet
+from .models import DailySalesLine
 
 GROUPINGS = {
     "day": ("Date", ["sheet__business_date"]),
@@ -29,11 +29,10 @@ TOTALS = {
 }
 
 
-def summary_lines(*, business, outlets, date_from, date_to, statuses=(DailySalesSheet.Status.APPROVED,), product=None):
+def summary_lines(*, business, outlets, date_from, date_to, product=None):
     lines = DailySalesLine.objects.for_business(business).filter(
         sheet__outlet__in=outlets,
         sheet__business_date__range=(date_from, date_to),
-        sheet__status__in=statuses,
         closing_reading__isnull=False,
     )
     if product is not None:

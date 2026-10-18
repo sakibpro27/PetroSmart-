@@ -2,14 +2,21 @@ from datetime import date
 from decimal import Decimal
 
 from django import forms
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from core.forms import BootstrapFormMixin
-from station.models import FuelProduct, Shift
+from station.models import Dispenser, FuelProduct, Shift
 
-from .models import DailySalesLine, DailySalesSheet
+from .calculations import calculate_line
+from .models import DENOMINATIONS, DailySalesSheet
 from .reports import GROUPINGS
 from .services import viewable_outlets
+
+DECIMAL_INPUT = {"inputmode": "decimal", "step": "0.01", "min": "0", "autocomplete": "off"}
+DATE_INPUT = forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d")
+TIME_INPUT = forms.TimeInput(attrs={"type": "time"}, format="%H:%M")
+ZERO = Decimal("0")
 
 
 class ShiftChoiceField(forms.ModelChoiceField):
@@ -17,44 +24,104 @@ class ShiftChoiceField(forms.ModelChoiceField):
         return f"{shift.outlet.code} · {shift.name} ({shift.start_time:%H:%M}–{shift.end_time:%H:%M})"
 
 
+class DispenserChoiceField(forms.ModelChoiceField):
+    def label_from_instance(self, dispenser):
+        return f"{dispenser.outlet.code} · {dispenser.code}"
+
+
 class NewSheetForm(BootstrapFormMixin, forms.Form):
-    business_date = forms.DateField(
-        label="Business date", widget=forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
-    )
+    """Date and outlet/shift picker, also used by attendance."""
+
+    business_date = forms.DateField(label="Date", widget=DATE_INPUT)
     shift = ShiftChoiceField(queryset=Shift.objects.none(), label="Outlet and shift")
 
     def __init__(self, *args, user, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["business_date"].initial = timezone.localdate()
         self.fields["business_date"].widget.attrs["max"] = timezone.localdate().isoformat()
-        # Only shifts at outlets this user works at.
         self.fields["shift"].queryset = (
             Shift.objects.for_business(user.business)
             .filter(outlet__in=user.accessible_outlets(), is_active=True)
-            .select_related("outlet")
-            .order_by("outlet__code", "sort_order")
+            .select_related("outlet").order_by("outlet__code", "sort_order")
         )
 
 
-DECIMAL_INPUT = {"inputmode": "decimal", "step": "0.01", "min": "0", "autocomplete": "off"}
+# --- Shift Card ------------------------------------------------------------------------
 
 
-class LineEntryForm(BootstrapFormMixin, forms.ModelForm):
-    """One nozzle row. Opening reading and price are shown but never accepted from the browser."""
+class CardHeaderForm(BootstrapFormMixin, forms.ModelForm):
+    """The top of the Shift Card and its money fields. Date, shift and MPD/DU are fixed once saved."""
+
+    business_date = forms.DateField(label="Date", widget=DATE_INPUT)
+    shift = ShiftChoiceField(queryset=Shift.objects.none(), label="Shift")
+    dispenser = DispenserChoiceField(queryset=Dispenser.objects.none(), label="MPD / DU")
 
     class Meta:
-        model = DailySalesLine
-        fields = ["closing_reading", "testing_litres", "meter_reset", "reading_before_reset", "reading_after_reset", "notes"]
-        labels = {
-            "closing_reading": "Closing reading (L)",
-            "testing_litres": "Testing litres (L)",
-            "meter_reset": "Meter rolled over or replaced during this shift",
-            "reading_before_reset": "Last reading before reset (L)",
-            "reading_after_reset": "First reading after reset (L)",
-        }
+        model = DailySalesSheet
+        fields = ["employee", "cashier_name", "helper_name", "tanker_card", "time_from", "time_to", "notes",
+                  "general_credit", "general_credit_party", "bank_card", "company_card", "phone_wallet",
+                  *[f"notes_{d}" for d in DENOMINATIONS], "coins"]
+        labels = {"employee": "Employee name", "tanker_card": "Tanker card?", "time_from": "Time from",
+                  "time_to": "Time to", "general_credit_party": "Gen. credit party"}
+        widgets = {"time_from": TIME_INPUT, "time_to": TIME_INPUT}
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, user, editing=False, **kwargs):
+        from operations.models import Employee  # operations builds on sales
+
         super().__init__(*args, **kwargs)
+        outlets = user.accessible_outlets()
+        today = timezone.localdate()
+        self.fields["business_date"].initial = today
+        self.fields["business_date"].widget.attrs["max"] = today.isoformat()
+        self.fields["shift"].queryset = (Shift.objects.for_business(user.business)
+                                         .filter(outlet__in=outlets, is_active=True)
+                                         .select_related("outlet").order_by("outlet__code", "sort_order"))
+        self.fields["dispenser"].queryset = (Dispenser.objects.for_business(user.business)
+                                             .filter(outlet__in=outlets, is_active=True)
+                                             .select_related("outlet").order_by("outlet__code", "code"))
+        self.fields["employee"].queryset = (Employee.objects.for_business(user.business)
+                                            .filter(outlet__in=outlets, is_active=True).select_related("outlet"))
+        self.fields["employee"].required = True
+        for name in ("general_credit", "bank_card", "company_card", "phone_wallet", "coins"):
+            self.fields[name].widget.attrs.update({**DECIMAL_INPUT, "data-money": name})
+        for d in DENOMINATIONS:
+            field = self.fields[f"notes_{d}"]
+            field.label = f"{d} ×"
+            field.widget.attrs.update({"inputmode": "numeric", "min": "0", "data-note": str(d)})
+        if editing:
+            for name in ("business_date", "shift", "dispenser"):
+                self.fields[name].disabled = True
+                self.fields[name].required = False
+
+    def clean(self):
+        cleaned = super().clean()
+        shift, dispenser, employee = cleaned.get("shift"), cleaned.get("dispenser"), cleaned.get("employee")
+        if shift and dispenser and shift.outlet_id != dispenser.outlet_id:
+            self.add_error("shift", "This shift is at a different outlet from the MPD / DU.")
+        if employee and dispenser and employee.outlet_id != dispenser.outlet_id:
+            self.add_error("employee", "This employee works at a different outlet.")
+        if cleaned.get("general_credit") and not cleaned.get("general_credit_party", "").strip():
+            self.add_error("general_credit_party", "Write who the general credit was given to.")
+        return cleaned
+
+
+class NozzleRowForm(BootstrapFormMixin, forms.Form):
+    """One nozzle row: the opening reading and rate are shown, never accepted from the browser."""
+
+    nozzle_id = forms.IntegerField(widget=forms.HiddenInput)
+    closing_reading = forms.DecimalField(max_digits=12, decimal_places=2, min_value=ZERO, label="Closing")
+    testing_litres = forms.DecimalField(max_digits=10, decimal_places=2, min_value=ZERO, initial=ZERO,
+                                        label="Testing")
+    meter_reset = forms.BooleanField(required=False, label="Meter rolled over or replaced during this shift")
+    reading_before_reset = forms.DecimalField(max_digits=12, decimal_places=2, min_value=ZERO, required=False,
+                                              label="Last reading before reset (L)")
+    reading_after_reset = forms.DecimalField(max_digits=12, decimal_places=2, min_value=ZERO, required=False,
+                                             label="First reading after reset (L)")
+    notes = forms.CharField(max_length=255, required=False)
+
+    def __init__(self, *args, row=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.row = row or {}
         for name in ("closing_reading", "testing_litres", "reading_before_reset", "reading_after_reset"):
             self.fields[name].widget.attrs.update(DECIMAL_INPUT)
         self.fields["closing_reading"].widget.attrs["data-role"] = "closing"
@@ -64,16 +131,118 @@ class LineEntryForm(BootstrapFormMixin, forms.ModelForm):
         self.fields["reading_after_reset"].widget.attrs["data-role"] = "after"
         self.fields["notes"].widget.attrs["placeholder"] = "Notes (required for a meter reset)"
 
+    def clean(self):
+        cleaned = super().clean()
+        if self.errors or not self.row:
+            return cleaned
+        if cleaned.get("meter_reset") and not cleaned.get("notes", "").strip():
+            self.add_error("notes", "Explain the meter rollover or replacement.")
+        try:
+            calculate_line(self.row["opening"], cleaned["closing_reading"], cleaned.get("testing_litres") or ZERO,
+                           self.row["price"], meter_reset=cleaned.get("meter_reset"),
+                           before_reset=cleaned.get("reading_before_reset"), after_reset=cleaned.get("reading_after_reset"))
+        except ValidationError as error:
+            for field, messages in error.message_dict.items():
+                for message in messages:
+                    self.add_error(field if field in self.fields else None, message)
+        return cleaned
 
-LineFormSet = forms.modelformset_factory(DailySalesLine, form=LineEntryForm, extra=0, edit_only=True)
+
+class BaseNozzleFormSet(forms.BaseFormSet):
+    def __init__(self, *args, rows=(), **kwargs):
+        self.rows = list(rows)
+        super().__init__(*args, **kwargs)
+
+    def get_form_kwargs(self, index):
+        kwargs = super().get_form_kwargs(index)
+        kwargs["row"] = self.rows[index] if index is not None and index < len(self.rows) else None
+        return kwargs
 
 
-class SheetNotesForm(BootstrapFormMixin, forms.ModelForm):
-    class Meta:
-        model = DailySalesSheet
-        fields = ["notes"]
-        labels = {"notes": "Notes for the Dealer (optional)"}
-        widgets = {"notes": forms.Textarea(attrs={"rows": 2})}
+NozzleFormSet = forms.formset_factory(NozzleRowForm, formset=BaseNozzleFormSet, extra=0)
+
+
+class _DetailRowForm(BootstrapFormMixin, forms.Form):
+    """A detail row is skipped when left completely empty."""
+
+    def __init__(self, *args, business, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.empty_permitted = True
+        self.use_required_attribute = False
+        for field in self.fields.values():
+            if isinstance(field, forms.DecimalField):
+                field.widget.attrs.update({**DECIMAL_INPUT, "data-sum": "1"})
+
+
+class CreditRowForm(_DetailRowForm):
+    customer = forms.ModelChoiceField(queryset=None)
+    amount = forms.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"))
+    vehicle_number = forms.CharField(max_length=20, required=False, label="Vehicle")
+    slip_number = forms.CharField(max_length=40, required=False, label="Slip no.")
+
+    def __init__(self, *args, business, **kwargs):
+        from finance.models import CreditCustomer
+
+        super().__init__(*args, business=business, **kwargs)
+        self.fields["customer"].queryset = CreditCustomer.objects.for_business(business).filter(is_active=True)
+
+
+class ReceiptRowForm(_DetailRowForm):
+    customer = forms.ModelChoiceField(queryset=None)
+    amount = forms.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"))
+    reference = forms.CharField(max_length=100, required=False, label="Receipt no.")
+
+    def __init__(self, *args, business, **kwargs):
+        from finance.models import CreditCustomer
+
+        super().__init__(*args, business=business, **kwargs)
+        self.fields["customer"].queryset = CreditCustomer.objects.for_business(business).filter(is_active=True)
+
+
+class LubeRowForm(_DetailRowForm):
+    item = forms.ModelChoiceField(queryset=None)
+    quantity = forms.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"), label="Qty")
+    rate = forms.DecimalField(max_digits=10, decimal_places=2, min_value=ZERO, label="Rate (₹)")
+
+    def __init__(self, *args, business, **kwargs):
+        from operations.models import ShopItem
+
+        super().__init__(*args, business=business, **kwargs)
+        self.fields["item"].queryset = ShopItem.objects.for_business(business).filter(is_active=True)
+        self.fields["quantity"].widget.attrs.pop("data-sum", None)
+        self.fields["rate"].widget.attrs.pop("data-sum", None)
+        self.fields["quantity"].widget.attrs["data-qty"] = "1"
+        self.fields["rate"].widget.attrs["data-rate"] = "1"
+
+
+class ExpenseRowForm(_DetailRowForm):
+    category = forms.ModelChoiceField(queryset=None)
+    description = forms.CharField(max_length=200)
+    amount = forms.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"))
+
+    def __init__(self, *args, business, **kwargs):
+        from finance.models import ExpenseCategory
+
+        super().__init__(*args, business=business, **kwargs)
+        self.fields["category"].queryset = ExpenseCategory.objects.for_business(business).filter(is_active=True)
+
+
+def detail_formset(form_class):
+    return forms.formset_factory(form_class, extra=1, max_num=50, validate_max=True)
+
+
+CreditFormSet = detail_formset(CreditRowForm)
+ReceiptFormSet = detail_formset(ReceiptRowForm)
+LubeFormSet = detail_formset(LubeRowForm)
+ExpenseFormSet = detail_formset(ExpenseRowForm)
+
+
+def filled_rows(formset, *names):
+    """Values of the non-empty rows of a valid detail formset, as tuples in `names` order."""
+    return [tuple(form.cleaned_data.get(name, "") for name in names) for form in formset.forms if form.cleaned_data]
+
+
+# --- Other forms ---------------------------------------------------------------------
 
 
 class ReviewNoteForm(BootstrapFormMixin, forms.Form):
@@ -83,7 +252,7 @@ class ReviewNoteForm(BootstrapFormMixin, forms.Form):
 class CorrectionRequestForm(BootstrapFormMixin, forms.Form):
     reason = forms.CharField(
         widget=forms.Textarea(attrs={"rows": 3}), max_length=1000,
-        help_text="Explain why the approved figures are wrong. The Dealer sees this before approving.",
+        help_text="Explain why the saved figures are wrong. This is kept in the card's history.",
     )
 
     def __init__(self, *args, sheet, **kwargs):
@@ -109,7 +278,7 @@ class CorrectionRequestForm(BootstrapFormMixin, forms.Form):
         for line in self.lines:
             values = [cleaned.get(f"{key}_{line.pk}") for key in ("closing", "testing", "price")]
             if None in values:
-                continue  # that field already has its own error
+                continue
             if tuple(values) != (line.closing_reading, line.testing_litres, line.price_per_litre):
                 self.changes.append((line, *values))
         if not self.errors and not self.changes:
@@ -119,11 +288,10 @@ class CorrectionRequestForm(BootstrapFormMixin, forms.Form):
 
 class SummaryFilterForm(BootstrapFormMixin, forms.Form):
     group_by = forms.ChoiceField(choices=[(key, label) for key, (label, _) in GROUPINGS.items()], initial="day", label="Group by")
-    date_from = forms.DateField(label="From", widget=forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"))
-    date_to = forms.DateField(label="To", widget=forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"))
+    date_from = forms.DateField(label="From", widget=DATE_INPUT)
+    date_to = forms.DateField(label="To", widget=DATE_INPUT)
     outlet = forms.ModelChoiceField(queryset=None, required=False, empty_label="All outlets")
     product = forms.ModelChoiceField(queryset=None, required=False, empty_label="All products")
-    include_submitted = forms.BooleanField(required=False, label="Include sheets awaiting approval")
 
     def __init__(self, *args, user, **kwargs):
         super().__init__(*args, **kwargs)

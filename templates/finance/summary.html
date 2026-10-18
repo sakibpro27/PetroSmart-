@@ -7,7 +7,7 @@
 <div class="page-header">
   <div>
     <h1>Operational summary</h1>
-    <p class="subtitle">{{ date_from|date:"d M Y" }} to {{ date_to|date:"d M Y" }}</p>
+    <p class="subtitle">{{ date_from|date:"d M Y" }} to {{ date_to|date:"d M Y" }} · {{ summary.card_count }} shift card{{ summary.card_count|pluralize }}</p>
   </div>
 </div>
 
@@ -29,24 +29,30 @@
 <div class="row g-4">
   <div class="col-lg-6">
     <div class="card table-card mb-4">
-      <div class="card-header">Sales against money received</div>
+      <div class="card-header">Shift cards added up</div>
       <div class="table-responsive">
         <table class="table align-middle">
           <tbody>
-            <tr><th scope="row" class="fw-normal">Customer sales value <span class="small text-muted">(approved Daily Sales, testing litres excluded)</span></th><td class="num fw-semibold">{{ summary.sales_value|inr }}</td></tr>
-            {% for row in summary.by_method %}<tr><th scope="row" class="fw-normal ps-4">{{ row.method__name }}</th><td class="num">{{ row.total|inr }}</td></tr>{% endfor %}
-            <tr><th scope="row" class="fw-normal">Money collected</th><td class="num">{{ summary.collected|inr }}</td></tr>
-            <tr><th scope="row" class="fw-normal">Credit sales</th><td class="num">{{ summary.credit|inr }}</td></tr>
+            <tr><th scope="row" class="fw-normal">Total fuel <span class="small text-muted">(testing litres excluded)</span></th><td class="num fw-semibold">{{ summary.total_fuel|inr }}</td></tr>
+            <tr><th scope="row" class="fw-normal">+ Lube / oil sale</th><td class="num">{{ summary.lube|inr }}</td></tr>
+            <tr><th scope="row" class="fw-normal">+ Customer receipts at the pump</th><td class="num">{{ summary.card_receipts|inr }}</td></tr>
+            <tr><th scope="row" class="fw-normal">− Credit sales</th><td class="num">{{ summary.credit|inr }}</td></tr>
+            <tr><th scope="row" class="fw-normal">− Gen. credit sales</th><td class="num">{{ summary.general_credit|inr }}</td></tr>
+            <tr><th scope="row" class="fw-normal">− Bank card</th><td class="num">{{ summary.bank_card|inr }}</td></tr>
+            <tr><th scope="row" class="fw-normal">− Company card</th><td class="num">{{ summary.company_card|inr }}</td></tr>
+            <tr><th scope="row" class="fw-normal">− Phone wallet</th><td class="num">{{ summary.phone_wallet|inr }}</td></tr>
+            <tr><th scope="row" class="fw-normal">− Exp / cash by DSM</th><td class="num">{{ summary.dsm_expenses|inr }}</td></tr>
+            <tr><th scope="row">= Cash to be collected</th><td class="num fw-semibold">{{ summary.expected_cash|inr }}</td></tr>
+            <tr><th scope="row" class="fw-normal">Cash collected (notes and coins)</th><td class="num">{{ summary.cash_collection|inr }}</td></tr>
           </tbody>
-          <tfoot><tr><th scope="row">Collected + credit − sales value</th><td class="num">{{ summary.difference|inr }}</td></tr></tfoot>
+          <tfoot><tr><th scope="row">Balance / short</th><td class="num">{% if summary.balance < 0 %}<span class="status status-danger">Short {{ summary.balance|inr }}</span>{% else %}{{ summary.balance|inr }}{% endif %}</td></tr></tfoot>
         </table>
       </div>
-      <div class="card-footer small text-muted">Collections are counted as recorded for every shift in the period, including shifts whose Daily Sales are not yet approved, so timing differences can appear here.</div>
     </div>
   </div>
   <div class="col-lg-6">
     <div class="card table-card mb-4">
-      <div class="card-header">Expenses</div>
+      <div class="card-header">Expenses (all, including DSM cash)</div>
       <div class="table-responsive">
         <table class="table align-middle">
           <tbody>{% for row in summary.by_category %}<tr><th scope="row" class="fw-normal">{{ row.category__name }}</th><td class="num">{{ row.total|inr }}</td></tr>{% empty %}<tr><td class="text-muted">No expenses</td></tr>{% endfor %}</tbody>

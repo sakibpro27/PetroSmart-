@@ -1,0 +1,36 @@
+{# Detail rows for one of the blue links (lube, receipts, credit, expenses), with "Add item". #}
+<section class="sc-box mb-3 sc-detail" id="detail-{{ key }}" data-detail="{{ key }}"
+         data-keep-open="{% if formset.initial_form_count or formset.total_error_count %}1{% endif %}">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+    <h2 class="sc-title mb-0">{{ title }} <span class="sc-detail-total" data-detail-total="{{ key }}"></span></h2>
+    <span class="small text-muted">{{ hint }}</span>
+  </div>
+  {{ formset.management_form }}
+  {% if formset.non_form_errors %}<div class="errorlist mb-2">{{ formset.non_form_errors|join:" " }}</div>{% endif %}
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-1">
+      <thead>
+        <tr>{% for field in formset.empty_form.visible_fields %}<th scope="col" class="{% if field.widget_type == 'number' %}num{% endif %}">{{ field.label }}</th>{% endfor %}<th scope="col"><span class="visually-hidden">Remove</span></th></tr>
+      </thead>
+      <tbody data-rows>
+        {% for form in formset %}
+          <tr class="{% if form.errors %}has-error{% endif %}">
+            {% for field in form.visible_fields %}
+              <td><label class="visually-hidden" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% include "partials/field_feedback.html" %}</td>
+            {% endfor %}
+            <td class="text-end"><button type="button" class="btn btn-sm btn-outline-secondary" data-clear-row title="Clear this row" aria-label="Clear this row"><i class="bi bi-x-lg" aria-hidden="true"></i></button></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <template data-empty-row>
+    <tr>
+      {% for field in formset.empty_form.visible_fields %}
+        <td><label class="visually-hidden" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}</td>
+      {% endfor %}
+      <td class="text-end"><button type="button" class="btn btn-sm btn-outline-secondary" data-clear-row title="Clear this row" aria-label="Clear this row"><i class="bi bi-x-lg" aria-hidden="true"></i></button></td>
+    </tr>
+  </template>
+  <button type="button" class="btn btn-sm btn-link px-0" data-add-row><i class="bi bi-plus-circle me-1" aria-hidden="true"></i>Add item</button>
+</section>

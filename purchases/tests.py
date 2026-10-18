@@ -46,7 +46,7 @@ class PurchaseFlowTests(PurchaseTestCase):
         self.assertRedirects(response, purchase.get_absolute_url())
         receipt = TankReceipt.objects.get()
         self.assertEqual((receipt.tank, receipt.litres, receipt.purchase, receipt.reference), (self.t2, D("11980"), purchase, "INV-1001"))
-        sheet = self.stock_sheet()
+        sheet = self.save_stock({self.t1: "1000", self.t2: "16980"})
         self.assertEqual(StockLine.objects.get(sheet=sheet, tank=self.t2).fuel_received, D("11980"))
 
     def test_detail_shows_shortage_and_charges(self):
@@ -98,12 +98,10 @@ class PurchaseFlowTests(PurchaseTestCase):
         log = AuditLog.objects.filter(action=AuditLog.Action.UPDATE, object_type="purchases.FuelPurchase").get()
         self.assertEqual(log.changes["tank_allocation"], {"from": {"T2": "11980.00"}, "to": {"T2": "12000.00"}})
 
-    def test_locked_after_stock_submitted(self):
+    def test_locked_after_stock_saved(self):
         self.post(self.purchase_data())
         purchase = FuelPurchase.objects.get()
-        sheet = self.stock_sheet()
-        self.dip(sheet, {self.t1: "1000", self.t2: "16980"})
-        stock_services.submit_stock_sheet(sheet, user=self.manager)
+        self.save_stock({self.t1: "1000", self.t2: "16980"})
         response = self.client.post(reverse("purchases:purchase_delete", args=[purchase.pk]))
         self.assertRedirects(response, purchase.get_absolute_url())
         self.assertTrue(FuelPurchase.objects.exists())

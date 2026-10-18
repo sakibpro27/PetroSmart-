@@ -1,15 +1,15 @@
 {% extends "layouts/app.html" %}
 {% load ps_format %}
-{% block title %}Daily Sales{% endblock %}
-{% block breadcrumb %}{{ business.name }} / Daily Sales{% endblock %}
+{% block title %}Shift cards{% endblock %}
+{% block breadcrumb %}{{ business.name }} / Shift cards{% endblock %}
 
 {% block content %}
 <div class="page-header">
   <div>
-    <h1>Daily Sales</h1>
-    <p class="subtitle">One sheet per outlet, date and shift. Testing litres are shown separately and never counted as sales.</p>
+    <h1>Shift cards</h1>
+    <p class="subtitle">One card per employee and MPD / DU for each shift. Testing litres are never counted as sales.</p>
   </div>
-  <a class="btn btn-primary" href="{% url 'sales:sheet_create' %}"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i> New sheet</a>
+  <a class="btn btn-primary" href="{% url 'sales:sheet_create' %}"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i> New shift card</a>
 </div>
 
 <form method="get" class="card card-body mb-3 filter-bar">
@@ -22,11 +22,8 @@
       </select>
     </div>
     <div class="col-sm-4 col-lg-3">
-      <label class="form-label small" for="f-status">Status</label>
-      <select class="form-select" id="f-status" name="status">
-        <option value="">Any status</option>
-        {% for value, label in statuses %}<option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
-      </select>
+      <label class="form-label small" for="f-date">Date</label>
+      <input class="form-control" type="date" id="f-date" name="date" value="{{ selected_date }}">
     </div>
     <div class="col-sm-3 col-lg-2"><button type="submit" class="btn btn-outline-secondary w-100" data-no-busy>Filter</button></div>
   </div>
@@ -38,9 +35,9 @@
       <table class="table table-hover align-middle">
         <thead>
           <tr>
-            <th scope="col">Date</th><th scope="col">Shift</th><th scope="col">Outlet</th><th scope="col">Status</th>
-            <th scope="col" class="num">Total delivery (L)</th><th scope="col" class="num">Testing (L)</th>
-            <th scope="col" class="num">Net sales (L)</th><th scope="col" class="num">Sales value</th>
+            <th scope="col">Date</th><th scope="col">Shift</th><th scope="col">Outlet</th><th scope="col">MPD / DU</th><th scope="col">Employee</th>
+            <th scope="col" class="num">Sale Ltr</th><th scope="col" class="num">Testing (L)</th><th scope="col" class="num">Net Ltr</th>
+            <th scope="col" class="num">Total fuel</th><th scope="col" class="num">Balance / short</th>
           </tr>
         </thead>
         <tbody>
@@ -49,14 +46,13 @@
               <td class="text-nowrap"><a href="{{ sheet.get_absolute_url }}">{{ sheet.business_date|date:"d M Y" }}</a></td>
               <td>{{ sheet.shift.name }}</td>
               <td>{{ sheet.outlet.code }}</td>
-              <td>
-                {% include "sales/partials/status.html" with status=sheet.status label=sheet.get_status_display %}
-                {% if sheet.pending_corrections %}<span class="status status-warning ms-1"><i class="bi bi-pencil-square" aria-hidden="true"></i> Correction pending</span>{% endif %}
-              </td>
+              <td>{{ sheet.dispenser.code|default:"—" }}</td>
+              <td>{{ sheet.employee|default:"—" }}</td>
               <td class="num">{{ sheet.total_delivery|qty }}</td>
               <td class="num">{{ sheet.testing_litres|qty }}</td>
               <td class="num fw-semibold">{{ sheet.net_sales_litres|qty }}</td>
-              <td class="num">{{ sheet.sales_value|inr }}</td>
+              <td class="num">{{ sheet.figures.total_fuel|inr }}</td>
+              <td class="num">{% if sheet.figures.balance < 0 %}<span class="status status-danger">Short {{ sheet.figures.balance|inr }}</span>{% elif sheet.figures.balance > 0 %}<span class="status status-warning">Excess {{ sheet.figures.balance|inr }}</span>{% else %}{{ sheet.figures.balance|inr }}{% endif %}</td>
             </tr>
           {% endfor %}
         </tbody>
@@ -66,16 +62,16 @@
       <nav class="card-footer d-flex justify-content-between align-items-center" aria-label="Pages">
         <span class="small text-muted">Page {{ page_obj.number }} of {{ paginator.num_pages }}</span>
         <span class="d-flex gap-2">
-          {% if page_obj.has_previous %}<a class="btn btn-sm btn-outline-secondary" href="?page={{ page_obj.previous_page_number }}&outlet={{ selected_outlet }}&status={{ selected_status }}">Previous</a>{% endif %}
-          {% if page_obj.has_next %}<a class="btn btn-sm btn-outline-secondary" href="?page={{ page_obj.next_page_number }}&outlet={{ selected_outlet }}&status={{ selected_status }}">Next</a>{% endif %}
+          {% if page_obj.has_previous %}<a class="btn btn-sm btn-outline-secondary" href="?page={{ page_obj.previous_page_number }}&outlet={{ selected_outlet }}&date={{ selected_date }}">Previous</a>{% endif %}
+          {% if page_obj.has_next %}<a class="btn btn-sm btn-outline-secondary" href="?page={{ page_obj.next_page_number }}&outlet={{ selected_outlet }}&date={{ selected_date }}">Next</a>{% endif %}
         </span>
       </nav>
     {% endif %}
   {% else %}
     <div class="empty-state">
       <i class="bi bi-journal-text" aria-hidden="true"></i>
-      <div class="title">No Daily Sales sheets found</div>
-      <div>Start a sheet at the end of a shift to record nozzle readings.</div>
+      <div class="title">No shift cards found</div>
+      <div>Fill a shift card at the end of each attendant's shift.</div>
     </div>
   {% endif %}
 </div>

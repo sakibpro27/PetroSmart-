@@ -1,32 +1,27 @@
 """
-Daily Sales screens. Views only collect input and show results; the rules
+Shift Card screens. Views only collect input and show results; the rules
 live in sales.services and the formulas in sales.calculations.
 """
 
-from collections import OrderedDict
-from decimal import Decimal
-
 from django.contrib import messages
 from django.core.exceptions import ValidationError
-from django.db import transaction
-from django.db.models import Count, Exists, OuterRef, Q, Sum
+from django.db.models import Sum
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.functional import cached_property
 from django.views import View
-from django.views.generic import DetailView, FormView, ListView, TemplateView
+from django.views.generic import FormView, ListView, TemplateView
 
-from finance import services as finance_services
-from finance.forms import CollectionLineFormSet, CreditSaleFormSet
-from finance.models import ShiftCollection
-from tenants.permissions import BusinessMemberRequiredMixin, DealerRequiredMixin
+from operations.models import ShopItem
+from tenants.permissions import BusinessMemberRequiredMixin
 
 from . import services
-from .forms import CorrectionRequestForm, LineFormSet, NewSheetForm, ReviewNoteForm, SheetNotesForm, SummaryFilterForm
-from .models import DailySalesSheet, SalesCorrection
+from .forms import (
+    CardHeaderForm, CorrectionRequestForm, CreditFormSet, ExpenseFormSet, LubeFormSet, NozzleFormSet, ReceiptFormSet,
+    SummaryFilterForm, filled_rows,
+)
+from .models import DENOMINATIONS
 from .reports import GROUPINGS, sales_summary, summary_lines
-
-Status = DailySalesSheet.Status
 
 
 def _messages_from(error):
@@ -34,16 +29,17 @@ def _messages_from(error):
 
 
 class SheetMixin(BusinessMemberRequiredMixin):
-    """Looks a sheet up only among the sheets this user may see (otherwise 404)."""
+    """Looks a card up only among the cards this user may see (otherwise 404)."""
 
     @cached_property
     def sheet(self):
         return get_object_or_404(
-            services.sheets_for(self.request.user).select_related("outlet", "shift"), pk=self.kwargs["pk"]
+            services.sheets_for(self.request.user).select_related("outlet", "shift", "dispenser", "employee"),
+            pk=self.kwargs["pk"],
         )
 
 
-# --- List and create ---------------------------------------------------------
+# --- List ------------------------------------------------------------------------------
 
 
 class SheetListView(BusinessMemberRequiredMixin, ListView):
@@ -52,233 +48,227 @@ class SheetListView(BusinessMemberRequiredMixin, ListView):
     paginate_by = 25
 
     def get_queryset(self):
-        sheets = services.sheets_for(self.request.user).select_related("outlet", "shift", "entered_by")
-        params = self.request.GET
-        if params.get("outlet", "").isdigit():
-            sheets = sheets.filter(outlet_id=params["outlet"])
-        if params.get("status") in Status.values:
-            sheets = sheets.filter(status=params["status"])
+        sheets = services.sheets_for(self.request.user).select_related("outlet", "shift", "dispenser", "employee")
+        if self.request.GET.get("outlet", "").isdigit():
+            sheets = sheets.filter(outlet_id=self.request.GET["outlet"])
+        if self.request.GET.get("date"):
+            sheets = sheets.filter(business_date=self.request.GET["date"])
         return sheets.annotate(
             total_delivery=Sum("lines__total_delivery"),
             testing_litres=Sum("lines__testing_litres"),
             net_sales_litres=Sum("lines__net_sales_litres"),
-            sales_value=Sum("lines__sales_value"),
-            # A subquery, not a join: joining corrections would multiply the sums above.
-            pending_corrections=Exists(
-                SalesCorrection.objects.filter(sheet=OuterRef("pk"), status=SalesCorrection.Status.PENDING)
-            ),
-        ).order_by("-business_date", "-shift_sort_order", "outlet__code")
+        ).order_by("-business_date", "-shift_sort_order", "outlet__code", "pk")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context.update(
-            outlets=services.viewable_outlets(self.request.user),
-            statuses=Status.choices,
-            selected_outlet=self.request.GET.get("outlet", ""),
-            selected_status=self.request.GET.get("status", ""),
-        )
+        for sheet in context["sheets"]:
+            sheet.figures = services.card_figures(sheet)
+        context.update(outlets=services.viewable_outlets(self.request.user),
+                       selected_outlet=self.request.GET.get("outlet", ""), selected_date=self.request.GET.get("date", ""))
         return context
 
 
-class SheetCreateView(BusinessMemberRequiredMixin, FormView):
-    template_name = "crud/form.html"
-    form_class = NewSheetForm
-
-    def get_form_kwargs(self):
-        kwargs = super().get_form_kwargs()
-        kwargs["user"] = self.request.user
-        return kwargs
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context.update(
-            page_title="Start a Daily Sales sheet",
-            page_subtitle="Opening readings and prices are filled in for you.",
-            cancel_url=reverse("sales:sheet_list"),
-        )
-        return context
-
-    def form_valid(self, form):
-        try:
-            sheet = services.create_sheet(
-                user=self.request.user, shift=form.cleaned_data["shift"],
-                business_date=form.cleaned_data["business_date"], request=self.request,
-            )
-        except ValidationError as error:
-            for message in _messages_from(error):
-                form.add_error(None, message)
-            return self.form_invalid(form)
-        messages.success(self.request, f"Sheet started for {sheet}. Enter the closing readings.")
-        return redirect("sales:sheet_edit", pk=sheet.pk)
+# --- Create and edit ---------------------------------------------------------------------
 
 
-# --- Entry -------------------------------------------------------------------
+class CardFormView(BusinessMemberRequiredMixin, View):
+    """The Shift Card. New cards pick date, shift and MPD/DU first; the nozzle rows then load."""
 
-
-class SheetEditView(SheetMixin, View):
-    template_name = "sales/sheet_edit.html"
+    template_name = "sales/card_form.html"
 
     @cached_property
-    def collection(self):
-        """The payment breakdown (cash, UPI, card, credit) recorded for this sheet's shift."""
-        return finance_services.collection_for_sheet(self.sheet, self.request.user)
+    def sheet(self):
+        if "pk" not in self.kwargs:
+            return None
+        return get_object_or_404(services.sheets_for(self.request.user).select_related("outlet", "shift", "dispenser"),
+                                 pk=self.kwargs["pk"])
 
-    def _forms(self, data=None):
-        lines = self.sheet.lines.select_related("nozzle__dispenser", "product").order_by("product__category", "nozzle__code")
-        forms = {
-            "formset": LineFormSet(data, queryset=lines, prefix="lines"),
-            "notes_form": SheetNotesForm(data, instance=self.sheet, prefix="sheet"),
-            "payment_lines": None, "credit_sales": None,
+    def _rows_for_edit(self):
+        lines = self.sheet.lines.select_related("nozzle__product").order_by("nozzle__code")
+        return [{"nozzle": l.nozzle, "opening": l.opening_reading, "price": l.price_per_litre, "line": l} for l in lines]
+
+    def _detail_initial(self):
+        s = self.sheet
+        if s is None:
+            return {}
+        return {
+            "credit": [{"customer": c.customer, "amount": c.amount, "vehicle_number": c.vehicle_number,
+                        "slip_number": c.slip_number} for c in s.credit_sales.select_related("customer")],
+            "receipts": [{"customer": r.customer, "amount": r.amount, "reference": r.reference}
+                         for r in s.customer_receipts.select_related("customer")],
+            "lubes": [{"item": m.item, "quantity": -m.quantity, "rate": m.unit_price} for m in s.lube_sales.select_related("item")],
+            "expenses": [{"category": e.category, "description": e.description, "amount": e.amount}
+                         for e in s.dsm_expenses.select_related("category")],
         }
-        # The payment section is optional on save: only process it if it was on the submitted page.
-        if data is not None and "methods-TOTAL_FORMS" not in data:
-            return forms
-        collection = self.collection
-        if collection is not None and finance_services.can_edit_collection(collection, self.request.user):
-            forms["payment_lines"] = CollectionLineFormSet(
-                data, queryset=collection.lines.select_related("method").order_by("method__sort_order"), prefix="methods")
-            forms["credit_sales"] = CreditSaleFormSet(
-                data, queryset=collection.credit_sales.select_related("customer"), prefix="credit",
-                form_kwargs={"business": collection.business})
-        return forms
 
-    def _render(self, forms):
-        collection = self.collection  # created on first opening, so the payment fields can be shown
+    def _detail_formsets(self, data=None):
+        business = self.request.business
+        initial = self._detail_initial() if data is None else {}
+        kwargs = {"form_kwargs": {"business": business}}
+        return {
+            "credit": CreditFormSet(data, initial=initial.get("credit"), prefix="credit", **kwargs),
+            "receipts": ReceiptFormSet(data, initial=initial.get("receipts"), prefix="receipts", **kwargs),
+            "lubes": LubeFormSet(data, initial=initial.get("lubes"), prefix="lubes", **kwargs),
+            "expenses": ExpenseFormSet(data, initial=initial.get("expenses"), prefix="expenses", **kwargs),
+        }
+
+    def _nozzle_formset(self, rows, data=None):
+        initial = None
+        if data is None:
+            initial = []
+            for row in rows:
+                line = row.get("line")
+                values = {"nozzle_id": row["nozzle"].pk}
+                if line is not None:
+                    values.update(closing_reading=line.closing_reading, testing_litres=line.testing_litres,
+                                  meter_reset=line.meter_reset, reading_before_reset=line.reading_before_reset,
+                                  reading_after_reset=line.reading_after_reset, notes=line.notes)
+                initial.append(values)
+        return NozzleFormSet(data, initial=initial, prefix="nozzles", rows=rows)
+
+    def _render(self, header, rows, nozzles, details, load_errors=()):
         return render(self.request, self.template_name, {
-            "sheet": self.sheet, **forms, "collection": collection,
-            "payment_figures": finance_services.collection_figures(collection) if collection else None,
+            "sheet": self.sheet, "header": header, "nozzles": nozzles, "rows": list(zip(nozzles.forms, rows)),
+            "details": details, "load_errors": load_errors,
+            "money_fields": [(d, header[f"notes_{d}"]) for d in DENOMINATIONS],
+            "block_reason": services.change_block_reason(self.sheet) if self.sheet else None,
+            "lube_prices": {str(pk): str(price) for pk, price in
+                            ShopItem.objects.for_business(self.request.business).values_list("pk", "selling_price")},
         })
 
+    # GET ------------------------------------------------------------------------
+
     def get(self, request, *args, **kwargs):
-        if not services.can_edit(self.sheet, request.user):
-            return redirect(self.sheet)
-        return self._render(self._forms())
+        user = request.user
+        if self.sheet is not None:
+            if not services.can_change(self.sheet, user):
+                messages.info(request, services.change_block_reason(self.sheet) or "You cannot edit this card.")
+                return redirect(self.sheet)
+            header = CardHeaderForm(instance=self.sheet, user=user, editing=True, initial={
+                "business_date": self.sheet.business_date, "shift": self.sheet.shift, "dispenser": self.sheet.dispenser})
+            rows = self._rows_for_edit()
+            return self._render(header, rows, self._nozzle_formset(rows), self._detail_formsets())
+
+        # New card: date, shift and MPD/DU come from the address so the nozzle rows can load.
+        initial = {key: request.GET[key] for key in ("business_date", "shift", "dispenser") if request.GET.get(key)}
+        header = CardHeaderForm(user=user, initial=initial)
+        rows, load_errors = [], []
+        picker = CardHeaderForm(request.GET, user=user)
+        picker.is_valid()
+        picked = {key: picker.cleaned_data.get(key) for key in ("business_date", "shift", "dispenser")}
+        if all(picked.values()):
+            if picked["shift"].outlet_id != picked["dispenser"].outlet_id:
+                load_errors = ["The shift and the MPD / DU must belong to the same outlet."]
+            else:
+                try:
+                    rows = services.nozzle_rows(picked["dispenser"], picked["business_date"], picked["shift"])
+                except ValidationError as error:
+                    load_errors = error.messages
+                if not header.initial.get("time_from"):
+                    header.initial.update(time_from=picked["shift"].start_time, time_to=picked["shift"].end_time)
+        return self._render(header, rows, self._nozzle_formset(rows), self._detail_formsets(), load_errors)
+
+    # POST -----------------------------------------------------------------------
 
     def post(self, request, *args, **kwargs):
-        if not services.can_edit(self.sheet, request.user):
-            messages.error(request, "This sheet can no longer be edited.")
+        user = request.user
+        editing = self.sheet is not None
+        if editing and not services.can_change(self.sheet, user):
+            messages.error(request, services.change_block_reason(self.sheet) or "You cannot edit this card.")
             return redirect(self.sheet)
-        forms = self._forms(request.POST)
-        if not all(form.is_valid() for form in forms.values() if form is not None):
+        header = CardHeaderForm(request.POST, instance=self.sheet, user=user, editing=editing,
+                                initial={"business_date": self.sheet.business_date, "shift": self.sheet.shift,
+                                         "dispenser": self.sheet.dispenser} if editing else None)
+        details = self._detail_formsets(request.POST)
+        rows, load_errors = [], []
+        if editing:
+            rows = self._rows_for_edit()
+        elif header.is_valid():
+            try:
+                rows = services.nozzle_rows(header.cleaned_data["dispenser"], header.cleaned_data["business_date"],
+                                            header.cleaned_data["shift"])
+            except ValidationError as error:
+                load_errors = error.messages
+        nozzles = self._nozzle_formset(rows, request.POST)
+
+        valid = header.is_valid() and nozzles.is_valid() and all(f.is_valid() for f in details.values()) and not load_errors
+        # Each posted row must be for the pump the server expects in that position
+        # (protects against a stale page or a forged row).
+        if valid and [f.cleaned_data["nozzle_id"] for f in nozzles.forms] != [r["nozzle"].pk for r in rows]:
+            load_errors = ["The pump rows do not match this MPD / DU any more. Reload the page and try again."]
+            valid = False
+        if not valid:
             messages.error(request, "Some entries need attention. Nothing was saved.")
-            return self._render(forms)
+            return self._render(header, rows, nozzles, details, load_errors)
+
+        data = header.cleaned_data
+        row_data = [{**form.cleaned_data, "nozzle": row["nozzle"]} for form, row in zip(nozzles.forms, rows)]
         try:
-            with transaction.atomic():
-                services.save_draft(self.sheet, forms["formset"], forms["notes_form"], user=request.user, request=request)
-                if forms["payment_lines"] is not None:
-                    finance_services.save_collection(self.collection, forms["payment_lines"], forms["credit_sales"],
-                                                     None, user=request.user, request=request)
-            over_limit = finance_services.customers_over_limit(self.collection) if forms["payment_lines"] is not None else []
-            for customer in over_limit:
-                messages.warning(request, f"{customer.name} is now over their credit limit of ₹{customer.credit_limit}.")
-            if request.POST.get("action") == "submit":
-                services.submit_sheet(self.sheet, user=request.user, request=request)
-                messages.success(request, f"{self.sheet} submitted to the Dealer for approval.")
-                return redirect(self.sheet)
+            sheet, warnings = services.save_card(
+                user=user, sheet=self.sheet, header=data, rows=row_data,
+                credits=filled_rows(details["credit"], "customer", "amount", "vehicle_number", "slip_number"),
+                receipts=filled_rows(details["receipts"], "customer", "amount", "reference"),
+                lubes=filled_rows(details["lubes"], "item", "quantity", "rate"),
+                expenses=filled_rows(details["expenses"], "category", "description", "amount"),
+                request=request,
+            )
         except ValidationError as error:
             for message in _messages_from(error):
                 messages.error(request, message)
-            return redirect("sales:sheet_edit", pk=self.sheet.pk)
-        messages.success(request, "Draft saved.")
-        return redirect("sales:sheet_edit", pk=self.sheet.pk)
+            return self._render(header, rows, nozzles, details, load_errors)
+        for warning in warnings:
+            messages.warning(request, warning)
+        messages.success(request, f"Shift card saved: {sheet}.")
+        url = sheet.get_absolute_url()
+        return redirect(f"{url}?print=1" if request.POST.get("action") == "print" else url)
 
 
-# --- Read-only view with review actions --------------------------------------
+# --- View, delete, correct ---------------------------------------------------------------
 
 
-def product_totals(lines):
-    totals = OrderedDict()
-    for line in lines:
-        bucket = totals.setdefault(line.product.name, {
-            "total_delivery": Decimal("0"), "testing_litres": Decimal("0"),
-            "net_sales_litres": Decimal("0"), "sales_value": Decimal("0"),
-        })
-        for key in bucket:
-            bucket[key] += getattr(line, key) or Decimal("0")
-    return totals
-
-
-class SheetDetailView(SheetMixin, DetailView):
+class SheetDetailView(SheetMixin, TemplateView):
     template_name = "sales/sheet_detail.html"
-    context_object_name = "sheet"
-
-    def get_object(self, queryset=None):
-        return self.sheet
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        user, sheet = self.request.user, self.sheet
-        lines = list(sheet.lines.select_related("nozzle__dispenser", "product").order_by("product__category", "nozzle__code"))
-        corrections = sheet.corrections.select_related("requested_by", "reviewed_by").prefetch_related("lines__line__nozzle")
-        pending = next((c for c in corrections if c.status == SalesCorrection.Status.PENDING), None)
-        totals = product_totals(lines)
-        collection = ShiftCollection.objects.filter(outlet=sheet.outlet, business_date=sheet.business_date,
-                                                    shift=sheet.shift).first()
-        if collection is not None:
-            context.update(
-                collection=collection,
-                payment_figures=finance_services.collection_figures(collection),
-                payment_lines=collection.lines.select_related("method").order_by("method__sort_order"),
-                credit_sales=collection.credit_sales.select_related("customer"),
-            )
+        sheet, user = self.sheet, self.request.user
+        works_here = user.accessible_outlets().filter(pk=sheet.outlet_id).exists()
         context.update(
-            lines=lines,
-            product_totals=totals,
-            grand_total={key: sum(t[key] for t in totals.values()) for key in
-                         ("total_delivery", "testing_litres", "net_sales_litres", "sales_value")},
-            corrections=corrections,
-            pending_correction=pending,
-            can_edit=services.can_edit(sheet, user),
-            can_review=user.is_dealer and sheet.status == Status.SUBMITTED,
-            can_return=user.is_dealer and sheet.status == Status.SUBMITTED and sheet.is_latest,
-            can_request_correction=sheet.status == Status.APPROVED and pending is None
-            and user.accessible_outlets().filter(pk=sheet.outlet_id).exists(),
-            note_form=ReviewNoteForm(),
+            sheet=sheet,
+            lines=sheet.lines.select_related("nozzle", "product").order_by("nozzle__code"),
+            figures=services.card_figures(sheet),
+            money_rows=[(d, getattr(sheet, f"notes_{d}"), getattr(sheet, f"notes_{d}") * d) for d in DENOMINATIONS],
+            credit_sales=sheet.credit_sales.select_related("customer"),
+            receipts=sheet.customer_receipts.select_related("customer"),
+            lube_sales=[{"item": m.item, "quantity": -m.quantity, "rate": m.unit_price, "amount": m.amount}
+                        for m in sheet.lube_sales.select_related("item")],
+            expenses=sheet.dsm_expenses.select_related("category"),
+            corrections=sheet.corrections.select_related("requested_by").prefetch_related("lines__line__nozzle"),
+            can_change=works_here and services.change_block_reason(sheet) is None,
+            can_correct=works_here and sheet.has_later_readings(),
+            print_now=self.request.GET.get("print") == "1",
         )
         return context
 
 
-class SheetApproveView(DealerRequiredMixin, SheetMixin, View):
+class SheetDeleteView(SheetMixin, View):
     def post(self, request, *args, **kwargs):
         try:
-            services.approve_sheet(self.sheet, user=request.user, request=request)
-            messages.success(request, f"{self.sheet} approved.")
+            services.delete_card(self.sheet, user=request.user, request=request)
         except ValidationError as error:
             for message in _messages_from(error):
                 messages.error(request, message)
-        return redirect(self.sheet)
-
-
-class SheetReturnView(DealerRequiredMixin, SheetMixin, View):
-    def post(self, request, *args, **kwargs):
-        form = ReviewNoteForm(request.POST)
-        note = form.cleaned_data["note"] if form.is_valid() else ""
-        try:
-            services.return_sheet(self.sheet, user=request.user, note=note, request=request)
-            messages.success(request, f"{self.sheet} sent back to the manager.")
-        except ValidationError as error:
-            for message in _messages_from(error):
-                messages.error(request, message)
-        return redirect(self.sheet)
-
-
-# --- Corrections ---------------------------------------------------------------
+            return redirect(self.sheet)
+        messages.success(request, "Shift card deleted. The deletion is recorded in the audit log.")
+        return redirect("sales:sheet_list")
 
 
 class CorrectionCreateView(SheetMixin, FormView):
     template_name = "sales/correction_form.html"
     form_class = CorrectionRequestForm
 
-    def get(self, request, *args, **kwargs):
-        if self.sheet.status != Status.APPROVED:
-            messages.info(request, "Only approved sheets need a correction. Draft sheets can be edited directly.")
-            return redirect(self.sheet)
-        return super().get(request, *args, **kwargs)
-
     def get_form_kwargs(self):
-        kwargs = super().get_form_kwargs()
-        kwargs["sheet"] = self.sheet
-        return kwargs
+        return {**super().get_form_kwargs(), "sheet": self.sheet}
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -287,60 +277,17 @@ class CorrectionCreateView(SheetMixin, FormView):
 
     def form_valid(self, form):
         try:
-            services.request_correction(
-                self.sheet, user=self.request.user, reason=form.cleaned_data["reason"],
-                changes=form.changes, request=self.request,
-            )
+            services.correct_card(self.sheet, user=self.request.user, reason=form.cleaned_data["reason"],
+                                  changes=form.changes, request=self.request)
         except ValidationError as error:
             for message in _messages_from(error):
                 form.add_error(None, message)
             return self.form_invalid(form)
-        messages.success(self.request, "Correction sent to the Dealer for approval. The approved figures stay unchanged until then.")
+        messages.success(self.request, "Correction applied. The old values are kept in the card's history.")
         return redirect(self.sheet)
 
 
-class CorrectionReviewView(DealerRequiredMixin, View):
-    def post(self, request, pk):
-        correction = get_object_or_404(
-            SalesCorrection.objects.for_business(request.business).select_related("sheet"), pk=pk
-        )
-        form = ReviewNoteForm(request.POST)
-        note = form.cleaned_data["note"] if form.is_valid() else ""
-        try:
-            if request.POST.get("action") == "approve":
-                services.approve_correction(correction, user=request.user, note=note, request=request)
-                messages.success(request, "Correction approved. The figures and history have been updated.")
-            else:
-                services.reject_correction(correction, user=request.user, note=note, request=request)
-                messages.success(request, "Correction rejected. The approved figures are unchanged.")
-        except ValidationError as error:
-            for message in _messages_from(error):
-                messages.error(request, message)
-        return redirect(correction.sheet)
-
-
-# --- Dealer approvals and summaries ------------------------------------------
-
-
-class ApprovalQueueView(DealerRequiredMixin, TemplateView):
-    template_name = "sales/approvals.html"
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        business = self.request.business
-        context["sheets"] = (
-            DailySalesSheet.objects.for_business(business).filter(status=Status.SUBMITTED)
-            .select_related("outlet", "shift", "submitted_by")
-            .annotate(net_sales_litres=Sum("lines__net_sales_litres"), testing_litres=Sum("lines__testing_litres"),
-                      sales_value=Sum("lines__sales_value"),
-                      meter_resets=Count("lines", filter=Q(lines__meter_reset=True)))
-            .order_by("business_date", "shift_sort_order")
-        )
-        context["corrections"] = (
-            SalesCorrection.objects.for_business(business).filter(status=SalesCorrection.Status.PENDING)
-            .select_related("sheet__outlet", "sheet__shift", "requested_by")
-        )
-        return context
+# --- Summary -------------------------------------------------------------------------------
 
 
 class SalesSummaryView(BusinessMemberRequiredMixin, TemplateView):
@@ -353,17 +300,12 @@ class SalesSummaryView(BusinessMemberRequiredMixin, TemplateView):
         context["form"] = form
         if self.request.GET and not form.is_valid():
             return context
-        data = form.cleaned_data if self.request.GET else {
-            name: form.fields[name].initial for name in form.fields
-        }
+        data = form.cleaned_data if self.request.GET else {name: form.fields[name].initial for name in form.fields}
         outlets = services.viewable_outlets(user)
         if data.get("outlet"):
             outlets = outlets.filter(pk=data["outlet"].pk)
-        statuses = [Status.APPROVED, Status.SUBMITTED] if data.get("include_submitted") else [Status.APPROVED]
-        lines = summary_lines(
-            business=user.business, outlets=outlets, date_from=data["date_from"], date_to=data["date_to"],
-            statuses=statuses, product=data.get("product"),
-        )
+        lines = summary_lines(business=user.business, outlets=outlets, date_from=data["date_from"],
+                              date_to=data["date_to"], product=data.get("product"))
         rows, totals = sales_summary(lines, data["group_by"])
         context.update(rows=rows, totals=totals, group_label=GROUPINGS[data["group_by"]][0], filters=data)
         return context

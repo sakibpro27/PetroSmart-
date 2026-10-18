@@ -20,6 +20,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from accounts.models import User
+from operations.models import Employee, ShopItem, StockMovement
 from purchases.models import Supplier
 from station.models import Dispenser, FuelPrice, FuelProduct, Nozzle, Shift, Tank, create_default_products
 from tenants.models import Business, Outlet, SubscriptionPlan
@@ -78,14 +79,14 @@ class Command(BaseCommand):
                 )
                 outlets.append(outlet)
 
+            dealer = self._user(spec["dealer"], business, User.Role.DEALER)
+            manager = self._user(spec["manager"], business, User.Role.MANAGER)
+            manager.assigned_outlets.set(outlets[:1])
+
             create_default_products(business)
             Supplier.objects.get_or_create(business=business, name=f"{spec['outlets'][0][2]} Terminal (demo)")
             for outlet in outlets:
                 self._outlet_setup(business, outlet, today)
-
-            dealer = self._user(spec["dealer"], business, User.Role.DEALER)
-            manager = self._user(spec["manager"], business, User.Role.MANAGER)
-            manager.assigned_outlets.set(outlets[:1])
             self.stdout.write(f"  {business.name}: dealer '{dealer.username}', manager '{manager.username}'")
 
         self.stdout.write(self.style.SUCCESS(f"Demo data ready. Password for all demo users: {DEMO_PASSWORD}"))
@@ -119,6 +120,16 @@ class Command(BaseCommand):
                 business=business, outlet=outlet, name=name,
                 defaults={"start_time": start, "end_time": end, "sort_order": order},
             )
+        for name, title in (("Ravi Patil", "Pump attendant"), ("Suresh Jadhav", "Pump attendant"),
+                            ("Anita More", "Cashier")):
+            Employee.objects.get_or_create(business=business, outlet=outlet, name=name, defaults={"job_title": title})
+        oil, created = ShopItem.objects.get_or_create(
+            business=business, name="20W-40 engine oil 1 L", defaults={"selling_price": Decimal("350"),
+                                                                         "reorder_level": Decimal("5")})
+        if not oil.movements.filter(outlet=outlet).exists():
+            StockMovement.objects.create(business=business, item=oil, outlet=outlet, moved_on=today - timedelta(days=30),
+                                         kind=StockMovement.Kind.OPENING, quantity=Decimal("24"),
+                                         entered_by=business.users.filter(role=User.Role.DEALER).first())
         for product_code, price in (("MS", "100.00"), ("HSD", "90.00")):
             FuelPrice.objects.get_or_create(
                 business=business, outlet=outlet, product=products[product_code],

@@ -1,9 +1,11 @@
 """
-Collections, customer credit and expenses (Phase 6).
+Customer credit, payment methods and expenses.
 
-Money collected is recorded as it actually came in, and compared with the
-shift's sales value. PetroSmart never assumes collections equal sales: any
-shortage or excess is shown, and credit sales are tracked per customer.
+The money collected on each shift is recorded on the Shift Card (sales app):
+cash notes, cards, wallet, credit sales, customer receipts and expenses paid
+by the attendant. Credit sales, receipts and expenses taken on a card are
+stored here, linked to that card, so customer ledgers and expense reports
+include them.
 
 These records support day-to-day management. They are not a statutory
 account and do not calculate GST or other taxes.
@@ -18,7 +20,7 @@ from django.db import models
 from django.db.models import Sum
 from django.urls import reverse
 
-from station.models import Shift, check_same_business
+from station.models import check_same_business
 from tenants.models import Outlet, TenantOwnedModel
 
 MONEY = {"max_digits": 14, "decimal_places": 2}
@@ -80,60 +82,17 @@ def create_default_finance_setup(business):
         ExpenseCategory.objects.get_or_create(business=business, name=name)
 
 
-# --- Shift collections ----------------------------------------------------------
+def cash_method(business):
+    """The business's cash payment method, used for receipts and expenses taken on a Shift Card."""
+    method = PaymentMethod.objects.for_business(business).filter(kind=PaymentMethod.Kind.CASH).order_by("sort_order").first()
+    if method is None:
+        method = PaymentMethod.objects.create(business=business, name="Cash", kind=PaymentMethod.Kind.CASH, sort_order=1)
+    return method
 
 
-class ShiftCollection(TenantOwnedModel):
-    class Status(models.TextChoices):
-        OPEN = "OPEN", "Open"
-        VERIFIED = "VERIFIED", "Verified by Dealer"
-
-    outlet = models.ForeignKey(Outlet, on_delete=models.PROTECT, related_name="collections")
-    shift = models.ForeignKey(Shift, on_delete=models.PROTECT, related_name="collections")
-    business_date = models.DateField()
-    status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
-    notes = models.TextField(blank=True, help_text="Explain any shortage, excess or timing difference.")
-    entered_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
-    verified_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="+")
-    verified_at = models.DateTimeField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ["-business_date", "-shift__sort_order"]
-        constraints = [
-            models.UniqueConstraint(fields=["outlet", "business_date", "shift"], name="unique_collection_per_outlet_date_shift",
-                                    violation_error_message="Collections for this outlet, date and shift are already recorded."),
-        ]
-
-    def __str__(self):
-        return f"{self.outlet.code} collections {self.business_date:%d-%m-%Y} {self.shift.name}"
-
-    def get_absolute_url(self):
-        return reverse("finance:collection_detail", args=[self.pk])
-
-    def clean(self):
-        super().clean()
-        check_same_business(self, "outlet", "shift")
-        if self.shift_id and self.outlet_id and self.shift.outlet_id != self.outlet_id:
-            raise ValidationError({"shift": "This shift belongs to a different outlet."})
-
-    def payments_total(self):
-        return self.lines.aggregate(total=Sum("amount"))["total"] or ZERO
-
-    def credit_total(self):
-        return self.credit_sales.aggregate(total=Sum("amount"))["total"] or ZERO
-
-
-class CollectionLine(TenantOwnedModel):
-    collection = models.ForeignKey(ShiftCollection, on_delete=models.PROTECT, related_name="lines")
-    method = models.ForeignKey(PaymentMethod, on_delete=models.PROTECT, related_name="+")
-    amount = models.DecimalField(**MONEY, default=ZERO, validators=NON_NEGATIVE)
-    reference = models.CharField(max_length=100, blank=True, help_text="e.g. card settlement batch or UPI report number")
-
-    class Meta:
-        ordering = ["method__sort_order", "method__name"]
-        constraints = [models.UniqueConstraint(fields=["collection", "method"], name="unique_method_per_collection")]
+def other_category(business):
+    category, _ = ExpenseCategory.objects.get_or_create(business=business, name="Other")
+    return category
 
 
 # --- Customer credit ----------------------------------------------------------------
@@ -173,9 +132,10 @@ class CreditCustomer(TenantOwnedModel):
 
 
 class CreditSale(TenantOwnedModel):
-    """Fuel given on credit during a shift. Increases what the customer owes."""
+    """Fuel given on credit on a Shift Card. Increases what the customer owes."""
 
-    collection = models.ForeignKey(ShiftCollection, on_delete=models.PROTECT, related_name="credit_sales")
+    sheet = models.ForeignKey("sales.DailySalesSheet", on_delete=models.PROTECT, related_name="credit_sales",
+                              verbose_name="shift card")
     customer = models.ForeignKey(CreditCustomer, on_delete=models.PROTECT, related_name="credit_sales")
     amount = models.DecimalField(**MONEY, validators=POSITIVE)
     vehicle_number = models.CharField(max_length=20, blank=True)
@@ -186,7 +146,7 @@ class CreditSale(TenantOwnedModel):
 
     def clean(self):
         super().clean()
-        check_same_business(self, "collection", "customer")
+        check_same_business(self, "sheet", "customer")
 
 
 class CustomerPayment(TenantOwnedModel):
@@ -201,6 +161,9 @@ class CustomerPayment(TenantOwnedModel):
     notes = models.CharField(max_length=255, blank=True)
     entered_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
+    # Set when the cash was taken at the pump and recorded on a Shift Card.
+    sheet = models.ForeignKey("sales.DailySalesSheet", on_delete=models.PROTECT, null=True, blank=True,
+                              related_name="customer_receipts", verbose_name="shift card")
 
     class Meta:
         ordering = ["-received_on", "-pk"]
@@ -247,6 +210,9 @@ class Expense(TenantOwnedModel):
     notes = models.CharField(max_length=255, blank=True)
     entered_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
+    # Set for "Exp/Cash by DSM": cash paid out by the attendant and recorded on a Shift Card.
+    sheet = models.ForeignKey("sales.DailySalesSheet", on_delete=models.PROTECT, null=True, blank=True,
+                              related_name="dsm_expenses", verbose_name="shift card")
 
     class Meta:
         ordering = ["-expense_date", "-pk"]

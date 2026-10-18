@@ -38,10 +38,14 @@
                   <td>{{ expense.method.name }}</td>
                   <td class="num">{{ expense.amount|inr }}</td>
                   <td class="text-end text-nowrap">
+                    {% if expense.sheet %}
+                    <a class="btn btn-sm btn-outline-secondary" href="{{ expense.sheet.get_absolute_url }}"><i class="bi bi-journal-text me-1" aria-hidden="true"></i>Shift card</a>
+                    {% else %}
                     <a class="btn btn-sm btn-outline-secondary" href="{% url 'finance:expense_edit' expense.pk %}">Edit</a>
                     <form method="post" action="{% url 'finance:expense_delete' expense.pk %}" class="d-inline" data-confirm="Delete this expense of ₹{{ expense.amount }}? The deletion is recorded in the audit log.">
                       {% csrf_token %}<button type="submit" class="btn btn-sm btn-outline-secondary">Delete</button>
                     </form>
+                    {% endif %}
                   </td>
                 </tr>
               {% endfor %}

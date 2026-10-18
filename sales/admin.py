@@ -5,9 +5,8 @@ from .models import CorrectionLine, DailySalesLine, DailySalesSheet, SalesCorrec
 
 class ReadOnlyAdmin(admin.ModelAdmin):
     """
-    Platform administrators may inspect Daily Sales for support, but not
-    change them: changes go through the Dealer's approval and correction
-    workflow so that history is kept.
+    Platform administrators may inspect business records for support, but not
+    change them: changes go through the business screens so that history is kept.
     """
 
     def has_add_permission(self, request, obj=None):
@@ -34,15 +33,15 @@ class LineInline(admin.TabularInline):
 
 @admin.register(DailySalesSheet)
 class DailySalesSheetAdmin(ReadOnlyAdmin):
-    list_display = ("business_date", "outlet", "shift", "status", "business")
-    list_filter = ("status", "business")
+    list_display = ("business_date", "outlet", "shift", "dispenser", "employee", "business")
+    list_filter = ("business",)
     inlines = [LineInline]
 
 
 @admin.register(SalesCorrection)
 class SalesCorrectionAdmin(ReadOnlyAdmin):
-    list_display = ("sheet", "status", "requested_by", "requested_at", "reviewed_by")
-    list_filter = ("status", "business")
+    list_display = ("sheet", "requested_by", "requested_at")
+    list_filter = ("business",)
 
 
 admin.site.register(CorrectionLine, ReadOnlyAdmin)

@@ -27,14 +27,9 @@
     </a>
     {% if business %}
       {% with namespace=request.resolver_match.namespace page=request.resolver_match.url_name %}
-      <a class="nav-link {% if namespace == 'sales' and page != 'summary' and page != 'approvals' %}active{% endif %}" href="{% url 'sales:sheet_list' %}">
-        <i class="bi bi-journal-text" aria-hidden="true"></i> Daily Sales
+      <a class="nav-link {% if namespace == 'sales' and page != 'summary' %}active{% endif %}" href="{% url 'sales:sheet_list' %}">
+        <i class="bi bi-journal-text" aria-hidden="true"></i> Shift cards
       </a>
-      {% if user.is_dealer %}
-        <a class="nav-link {% if url_name == 'sales:approvals' %}active{% endif %}" href="{% url 'sales:approvals' %}">
-          <i class="bi bi-check2-square" aria-hidden="true"></i> Approvals
-        </a>
-      {% endif %}
       <a class="nav-link {% if namespace == 'stock' and 'receipt' not in page %}active{% endif %}" href="{% url 'stock:sheet_list' %}">
         <i class="bi bi-database" aria-hidden="true"></i> Tank stock
       </a>
@@ -52,9 +47,6 @@
       </a>
 
       <div class="sidebar-section">Money</div>
-      <a class="nav-link {% if 'finance:collection' in url_name %}active{% endif %}" href="{% url 'finance:collection_list' %}">
-        <i class="bi bi-cash-stack" aria-hidden="true"></i> Collections
-      </a>
       <a class="nav-link {% if 'finance:customer' in url_name or 'finance:payment' in url_name %}active{% endif %}" href="{% url 'finance:customer_list' %}">
         <i class="bi bi-person-vcard" aria-hidden="true"></i> Credit customers
       </a>

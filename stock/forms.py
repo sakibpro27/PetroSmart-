@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django import forms
 from django.utils import timezone
 
@@ -5,13 +7,15 @@ from core.forms import AuditedModelForm, BootstrapFormMixin
 from station.models import Tank
 from tenants.models import Outlet
 
-from .models import StockLine, StockSheet, TankReceipt
+from .models import TankReceipt
 
 DECIMAL_INPUT = {"inputmode": "decimal", "step": "0.01", "min": "0", "autocomplete": "off"}
 DATE_INPUT = forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d")
 
 
-class NewStockSheetForm(BootstrapFormMixin, forms.Form):
+class StockPickForm(BootstrapFormMixin, forms.Form):
+    """Outlet and date for a new stock sheet; the tank rows then load."""
+
     business_date = forms.DateField(label="Business date", widget=DATE_INPUT)
     outlet = forms.ModelChoiceField(queryset=Outlet.objects.none())
 
@@ -22,11 +26,11 @@ class NewStockSheetForm(BootstrapFormMixin, forms.Form):
         self.fields["outlet"].queryset = user.accessible_outlets()
 
 
-class StockLineForm(BootstrapFormMixin, forms.ModelForm):
-    class Meta:
-        model = StockLine
-        fields = ["measured_closing", "notes"]
-        labels = {"measured_closing": "Measured closing stock (L)"}
+class TankRowForm(BootstrapFormMixin, forms.Form):
+    tank_id = forms.IntegerField(widget=forms.HiddenInput)
+    measured_closing = forms.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0"),
+                                          label="Measured closing stock (L)")
+    notes = forms.CharField(max_length=255, required=False)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -34,15 +38,11 @@ class StockLineForm(BootstrapFormMixin, forms.ModelForm):
         self.fields["notes"].widget.attrs["placeholder"] = "Explain any large variation"
 
 
-StockLineFormSet = forms.modelformset_factory(StockLine, form=StockLineForm, extra=0, edit_only=True)
+TankRowFormSet = forms.formset_factory(TankRowForm, extra=0)
 
 
-class StockNotesForm(BootstrapFormMixin, forms.ModelForm):
-    class Meta:
-        model = StockSheet
-        fields = ["notes"]
-        labels = {"notes": "Notes for the Dealer (optional)"}
-        widgets = {"notes": forms.Textarea(attrs={"rows": 2})}
+class StockNotesForm(BootstrapFormMixin, forms.Form):
+    notes = forms.CharField(required=False, label="Notes (optional)", widget=forms.Textarea(attrs={"rows": 2}))
 
 
 class TankChoiceField(forms.ModelChoiceField):

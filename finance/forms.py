@@ -5,13 +5,9 @@ from django.db.models import Q
 from django.utils import timezone
 
 from core.forms import AuditedModelForm, BootstrapFormMixin, TenantModelForm
-from sales.forms import NewSheetForm
 from stock.forms import DATE_INPUT, DECIMAL_INPUT
 
-from .models import (
-    CollectionLine, CreditAdjustment, CreditCustomer, CreditSale, CustomerPayment, Expense, ExpenseCategory,
-    PaymentMethod, ShiftCollection,
-)
+from .models import CreditAdjustment, CreditCustomer, CustomerPayment, Expense, ExpenseCategory, PaymentMethod
 
 # --- Dealer settings ------------------------------------------------------------
 
@@ -45,49 +41,6 @@ class CreditCustomerForm(TenantModelForm):
             for name in ("opening_balance", "opening_balance_date"):
                 self.fields[name].disabled = True
                 self.fields[name].help_text = "Fixed once the customer is created. Use an adjustment to change the balance."
-
-
-# --- Shift collections ------------------------------------------------------------
-
-
-class NewCollectionForm(NewSheetForm):
-    """Same choice of date and outlet/shift as a Daily Sales sheet."""
-
-
-class CollectionLineForm(BootstrapFormMixin, forms.ModelForm):
-    class Meta:
-        model = CollectionLine
-        fields = ["amount", "reference"]
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fields["amount"].widget.attrs.update({**DECIMAL_INPUT, "data-role": "amount"})
-
-
-CollectionLineFormSet = forms.modelformset_factory(CollectionLine, form=CollectionLineForm, extra=0, edit_only=True)
-
-
-class CreditSaleForm(BootstrapFormMixin, forms.ModelForm):
-    class Meta:
-        model = CreditSale
-        fields = ["customer", "amount", "vehicle_number", "slip_number"]
-
-    def __init__(self, *args, business, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.instance.business = business
-        current = Q(pk=self.instance.customer_id) if self.instance.customer_id else Q(pk__in=[])
-        self.fields["customer"].queryset = CreditCustomer.objects.for_business(business).filter(Q(is_active=True) | current)
-        self.fields["amount"].widget.attrs.update({**DECIMAL_INPUT, "min": "0.01", "data-role": "credit"})
-
-
-CreditSaleFormSet = forms.modelformset_factory(CreditSale, form=CreditSaleForm, extra=3, can_delete=True)
-
-
-class CollectionNotesForm(BootstrapFormMixin, forms.ModelForm):
-    class Meta:
-        model = ShiftCollection
-        fields = ["notes"]
-        widgets = {"notes": forms.Textarea(attrs={"rows": 2})}
 
 
 # --- Credit payments and adjustments ---------------------------------------------------

@@ -7,17 +7,14 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.functional import cached_property
 from django.views import View
-from django.views.generic import DetailView, FormView, ListView
+from django.views.generic import FormView, ListView, TemplateView
 
-from sales.forms import ReviewNoteForm
 from sales.services import viewable_outlets
-from tenants.permissions import BusinessMemberRequiredMixin, DealerRequiredMixin
+from tenants.permissions import BusinessMemberRequiredMixin
 
 from . import services
-from .forms import NewStockSheetForm, ReceiptForm, StockLineFormSet, StockNotesForm
-from .models import StockSheet, TankReceipt
-
-Status = StockSheet.Status
+from .forms import ReceiptForm, StockNotesForm, StockPickForm, TankRowFormSet
+from .models import TankReceipt
 
 
 def _show_errors(request, error):
@@ -54,114 +51,106 @@ class StockSheetListView(BusinessMemberRequiredMixin, ListView):
         return context
 
 
-class StockSheetCreateView(BusinessMemberRequiredMixin, FormView):
-    template_name = "crud/form.html"
-    form_class = NewStockSheetForm
+class StockSheetFormView(BusinessMemberRequiredMixin, View):
+    """New or edit: one page with every tank's figures and its dip reading. Saved in one step."""
 
-    def get_form_kwargs(self):
-        return {**super().get_form_kwargs(), "user": self.request.user}
+    template_name = "stock/sheet_form.html"
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context.update(page_title="Start a tank stock sheet",
-                       page_subtitle="Record the dip stock of every tank at the end of the business day.",
-                       cancel_url=reverse("stock:sheet_list"))
-        return context
+    @cached_property
+    def sheet(self):
+        if "pk" not in self.kwargs:
+            return None
+        return get_object_or_404(services.stock_sheets_for(self.request.user).select_related("outlet"), pk=self.kwargs["pk"])
 
-    def form_valid(self, form):
-        try:
-            sheet = services.create_stock_sheet(user=self.request.user, outlet=form.cleaned_data["outlet"],
-                                                business_date=form.cleaned_data["business_date"], request=self.request)
-        except ValidationError as error:
-            for message in error.messages:
-                form.add_error(None, message)
-            return self.form_invalid(form)
-        messages.success(self.request, f"{sheet} started. Enter each tank's measured (dip) stock.")
-        return redirect("stock:sheet_edit", pk=sheet.pk)
+    def _target(self, source):
+        """(outlet, date, pick form) for a new sheet, from GET or POST data."""
+        pick = StockPickForm(source or None, user=self.request.user)
+        if pick.is_bound and pick.is_valid():
+            return pick.cleaned_data["outlet"], pick.cleaned_data["business_date"], pick
+        return None, None, pick
 
-
-class StockSheetEditView(StockSheetMixin, View):
-    template_name = "stock/sheet_edit.html"
-
-    def _forms(self, data=None):
-        lines = self.sheet.lines.select_related("tank", "product")
-        return StockLineFormSet(data, queryset=lines, prefix="lines"), StockNotesForm(data, instance=self.sheet, prefix="sheet")
-
-    def _render(self, formset, notes_form):
+    def _render(self, pick, outlet, day, rows, formset, notes_form, errors=()):
         return render(self.request, self.template_name, {
-            "sheet": self.sheet, "formset": formset, "notes_form": notes_form,
-            "problems": services.day_problems(self.sheet.outlet, self.sheet.business_date),
+            "sheet": self.sheet, "pick": pick, "outlet": outlet, "day": day,
+            "rows": list(zip(formset.forms, rows)) if formset is not None else [],
+            "formset": formset, "notes_form": notes_form, "load_errors": errors,
+            "problems": services.day_problems(outlet, day) if outlet else [],
         })
 
+    def _load(self, outlet, day):
+        try:
+            return services.tank_rows(outlet, day, self.sheet), []
+        except ValidationError as error:
+            return [], error.messages
+
     def get(self, request, *args, **kwargs):
-        if not services.can_edit(self.sheet, request.user):
-            return redirect(self.sheet)
-        services.refresh_draft(self.sheet)  # show the latest receipts and sales
-        return self._render(*self._forms())
+        if self.sheet is not None:
+            if not services.can_change(self.sheet, request.user):
+                messages.info(request, "Only the latest stock sheet at an outlet can be edited.")
+                return redirect(self.sheet)
+            outlet, day, pick = self.sheet.outlet, self.sheet.business_date, None
+        else:
+            outlet, day, pick = self._target(request.GET)
+        rows, errors = self._load(outlet, day) if outlet else ([], [])
+        measured = {line.tank_id: line for line in self.sheet.lines.all()} if self.sheet else {}
+        initial = [{"tank_id": row["tank"].pk,
+                    "measured_closing": measured[row["tank"].pk].measured_closing if row["tank"].pk in measured else None,
+                    "notes": measured[row["tank"].pk].notes if row["tank"].pk in measured else ""} for row in rows]
+        formset = TankRowFormSet(initial=initial, prefix="tanks")
+        notes = StockNotesForm(initial={"notes": self.sheet.notes if self.sheet else ""})
+        return self._render(pick, outlet, day, rows, formset, notes, errors)
 
     def post(self, request, *args, **kwargs):
-        if not services.can_edit(self.sheet, request.user):
-            messages.error(request, "This stock sheet can no longer be edited.")
-            return redirect(self.sheet)
-        formset, notes_form = self._forms(request.POST)
-        if not (formset.is_valid() and notes_form.is_valid()):
+        if self.sheet is not None:
+            outlet, day, pick = self.sheet.outlet, self.sheet.business_date, None
+        else:
+            outlet, day, pick = self._target(request.POST)
+        if outlet is None:
+            messages.error(request, "Choose the outlet and date first.")
+            return redirect("stock:sheet_create")
+        rows, errors = self._load(outlet, day)
+        formset = TankRowFormSet(request.POST, prefix="tanks")
+        notes = StockNotesForm(request.POST)
+        if errors or not (formset.is_valid() and notes.is_valid()):
             messages.error(request, "Some entries need attention. Nothing was saved.")
-            return self._render(formset, notes_form)
+            return self._render(pick, outlet, day, rows, formset, notes, errors)
+        entries = {form.cleaned_data["tank_id"]: (form.cleaned_data["measured_closing"], form.cleaned_data["notes"])
+                   for form in formset.forms}
         try:
-            services.save_draft(self.sheet, formset, notes_form, user=request.user, request=request)
-            if request.POST.get("action") == "submit":
-                services.submit_stock_sheet(self.sheet, user=request.user, request=request)
-                messages.success(request, f"{self.sheet} submitted to the Dealer for approval.")
-                return redirect(self.sheet)
+            sheet = services.save_stock_sheet(user=request.user, outlet=outlet, business_date=day, entries=entries,
+                                              notes=notes.cleaned_data["notes"], sheet=self.sheet, request=request)
         except ValidationError as error:
             _show_errors(request, error)
-            return redirect("stock:sheet_edit", pk=self.sheet.pk)
-        messages.success(request, "Draft saved.")
-        return redirect("stock:sheet_edit", pk=self.sheet.pk)
+            return self._render(pick, outlet, day, rows, formset, notes)
+        messages.success(request, f"{sheet} saved.")
+        return redirect(sheet)
 
 
-class StockSheetDetailView(StockSheetMixin, DetailView):
+class StockSheetDetailView(StockSheetMixin, TemplateView):
     template_name = "stock/sheet_detail.html"
-    context_object_name = "sheet"
-
-    def get_object(self, queryset=None):
-        return self.sheet
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        sheet, user = self.sheet, self.request.user
+        sheet = self.sheet
         context.update(
+            sheet=sheet,
             lines=sheet.lines.select_related("tank", "product"),
             receipts=TankReceipt.objects.filter(outlet=sheet.outlet, received_on=sheet.business_date).select_related("tank"),
-            can_edit=services.can_edit(sheet, user),
-            can_review=user.is_dealer and sheet.status == Status.SUBMITTED,
-            can_return=user.is_dealer and sheet.status == Status.SUBMITTED and sheet.is_latest,
-            stale_tanks=services.stale_tanks(sheet) if sheet.status != Status.DRAFT else [],
-            note_form=ReviewNoteForm(),
+            can_change=services.can_change(sheet, self.request.user),
+            stale_tanks=services.stale_tanks(sheet),
         )
         return context
 
 
-class StockSheetApproveView(DealerRequiredMixin, StockSheetMixin, View):
+class StockSheetDeleteView(StockSheetMixin, View):
     def post(self, request, *args, **kwargs):
         try:
-            services.approve_stock_sheet(self.sheet, user=request.user, request=request)
-            messages.success(request, f"{self.sheet} approved.")
+            services.delete_stock_sheet(self.sheet, user=request.user, request=request)
         except ValidationError as error:
             _show_errors(request, error)
-        return redirect(self.sheet)
-
-
-class StockSheetReturnView(DealerRequiredMixin, StockSheetMixin, View):
-    def post(self, request, *args, **kwargs):
-        form = ReviewNoteForm(request.POST)
-        note = form.cleaned_data["note"] if form.is_valid() else ""
-        try:
-            services.return_stock_sheet(self.sheet, user=request.user, note=note, request=request)
-            messages.success(request, f"{self.sheet} sent back to the manager.")
-        except ValidationError as error:
-            _show_errors(request, error)
-        return redirect(self.sheet)
+            return redirect(self.sheet)
+        messages.success(request, "Stock sheet deleted. The deletion is recorded in the audit log.")
+        return redirect("stock:sheet_list")
 
 
 # --- Fuel receipts ------------------------------------------------------------

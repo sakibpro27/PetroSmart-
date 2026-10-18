@@ -7,16 +7,23 @@
 <div class="page-header">
   <div>
     <h1>Tank stock · {{ sheet.business_date|date:"d M Y" }}</h1>
-    <p class="subtitle">{{ sheet.outlet.name }} ({{ sheet.outlet.code }}) · {% include "sales/partials/status.html" with status=sheet.status label=sheet.get_status_display %}</p>
+    <p class="subtitle">{{ sheet.outlet.name }} ({{ sheet.outlet.code }})</p>
   </div>
-  {% if can_edit %}<a class="btn btn-primary" href="{% url 'stock:sheet_edit' sheet.pk %}"><i class="bi bi-pencil me-1" aria-hidden="true"></i> Continue entry</a>{% endif %}
+  {% if can_change %}
+    <div class="d-flex gap-2">
+      <a class="btn btn-primary" href="{% url 'stock:sheet_edit' sheet.pk %}"><i class="bi bi-pencil me-1" aria-hidden="true"></i> Edit</a>
+      <form method="post" action="{% url 'stock:sheet_delete' sheet.pk %}" data-confirm="Delete this stock sheet? Shift cards and receipts for this date become editable again. The deletion is recorded in the audit log.">
+        {% csrf_token %}<button type="submit" class="btn btn-outline-secondary"><i class="bi bi-trash me-1" aria-hidden="true"></i> Delete</button>
+      </form>
+    </div>
+  {% endif %}
 </div>
 
 {% if stale_tanks %}
   <div class="alert alert-warning" role="alert">
     <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
-    <div>Receipts or Daily Sales for tank {{ stale_tanks|join:", " }} changed after this stock sheet was submitted
-    (for example, through an approved sales correction). The figures below are as submitted.</div>
+    <div>Receipts or shift cards for tank {{ stale_tanks|join:", " }} changed after this stock sheet was saved
+    (for example, through a correction to an older shift card). The figures below are as saved.</div>
   </div>
 {% endif %}
 
@@ -65,38 +72,12 @@
       <div class="card-header">History</div>
       <div class="card-body">
         <dl class="detail-list">
-          <dt>Entered by</dt><dd>{{ sheet.entered_by.get_full_name|default:sheet.entered_by.username }} · {{ sheet.created_at|date:"d M Y, H:i" }}</dd>
-          <dt>Submitted</dt><dd>{% if sheet.submitted_at %}{{ sheet.submitted_by.get_full_name|default:sheet.submitted_by.username }} · {{ sheet.submitted_at|date:"d M Y, H:i" }}{% else %}—{% endif %}</dd>
-          <dt>Approved</dt><dd>{% if sheet.approved_at %}{{ sheet.approved_by.get_full_name|default:sheet.approved_by.username }} · {{ sheet.approved_at|date:"d M Y, H:i" }}{% else %}—{% endif %}</dd>
-          {% if sheet.notes %}<dt>Manager's notes</dt><dd>{{ sheet.notes|linebreaksbr }}</dd>{% endif %}
-          {% if sheet.review_note %}<dt>Dealer's last note</dt><dd>{{ sheet.review_note }}</dd>{% endif %}
+          <dt>Saved by</dt><dd>{{ sheet.entered_by.get_full_name|default:sheet.entered_by.username }} · {{ sheet.created_at|date:"d M Y, H:i" }}</dd>
+          {% if sheet.updated_by %}<dt>Last edited</dt><dd>{{ sheet.updated_by.get_full_name|default:sheet.updated_by.username }} · {{ sheet.updated_at|date:"d M Y, H:i" }}</dd>{% endif %}
+          {% if sheet.notes %}<dt>Notes</dt><dd>{{ sheet.notes|linebreaksbr }}</dd>{% endif %}
         </dl>
       </div>
     </div>
   </div>
-
-  {% if can_review %}
-    <div class="col-lg-6">
-      <div class="card mb-4">
-        <div class="card-header">Dealer review</div>
-        <div class="card-body">
-          <form method="post" action="{% url 'stock:sheet_approve' sheet.pk %}" class="mb-3" data-confirm="Approve this stock sheet?">
-            {% csrf_token %}
-            <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1" aria-hidden="true"></i> Approve stock</button>
-          </form>
-          {% if can_return %}
-            <form method="post" action="{% url 'stock:sheet_return' sheet.pk %}">
-              {% csrf_token %}
-              <label class="form-label" for="return-note">Or send back with a note</label>
-              <textarea class="form-control mb-2" id="return-note" name="note" rows="2" required></textarea>
-              <button type="submit" class="btn btn-outline-secondary">Send back for changes</button>
-            </form>
-          {% else %}
-            <p class="small text-muted mb-0">A later stock sheet starts from this measured stock, so this one cannot be sent back.</p>
-          {% endif %}
-        </div>
-      </div>
-    </div>
-  {% endif %}
 </div>
 {% endblock %}

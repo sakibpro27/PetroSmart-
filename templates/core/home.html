@@ -25,21 +25,6 @@
   </form>
 </div>
 
-{# --- Work waiting --- #}
-{% with p=dash.pending %}
-{% if p.sales_drafts or p.sales_submitted or p.corrections or p.stock_submitted %}
-  <div class="card mb-4">
-    <div class="card-body d-flex flex-wrap gap-2 align-items-center">
-      <span class="fw-semibold me-2">Needs attention:</span>
-      {% if p.sales_drafts %}<a class="btn btn-sm btn-outline-secondary" href="{% url 'sales:sheet_list' %}?status=DRAFT"><i class="bi bi-pencil me-1" aria-hidden="true"></i> {{ p.sales_drafts }} draft sales sheet{{ p.sales_drafts|pluralize }}</a>{% endif %}
-      {% if p.sales_submitted %}<a class="btn btn-sm {% if user.is_dealer %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="{% if user.is_dealer %}{% url 'sales:approvals' %}{% else %}{% url 'sales:sheet_list' %}?status=SUBMITTED{% endif %}"><i class="bi bi-hourglass-split me-1" aria-hidden="true"></i> {{ p.sales_submitted }} sales sheet{{ p.sales_submitted|pluralize }} awaiting approval</a>{% endif %}
-      {% if p.corrections %}<a class="btn btn-sm btn-outline-secondary" href="{% if user.is_dealer %}{% url 'sales:approvals' %}{% else %}{% url 'sales:sheet_list' %}{% endif %}"><i class="bi bi-pencil-square me-1" aria-hidden="true"></i> {{ p.corrections }} correction{{ p.corrections|pluralize }} pending</a>{% endif %}
-      {% if p.stock_submitted %}<a class="btn btn-sm btn-outline-secondary" href="{% url 'stock:sheet_list' %}"><i class="bi bi-database me-1" aria-hidden="true"></i> {{ p.stock_submitted }} stock sheet{{ p.stock_submitted|pluralize }} awaiting approval</a>{% endif %}
-    </div>
-  </div>
-{% endif %}
-{% endwith %}
-
 {% if due_reminders %}
   <div class="alert alert-warning" role="status">
     <i class="bi bi-alarm" aria-hidden="true"></i>
@@ -67,8 +52,8 @@
   <div class="col-sm-12 col-xl-2"><div class="stat"><div class="stat-label">Customer sales value</div><div class="stat-value">{{ dash.totals.sales_value|inr }}</div><div class="stat-meta">{{ dash.totals.net_sales_litres|qty }} L net</div></div></div>
 </div>
 <p class="small text-muted mb-4">
-  Includes sheets that are submitted or approved (not drafts).
-  {% if dash.awaiting_today %}{{ dash.awaiting_today }} of this day's sheet{{ dash.awaiting_today|pluralize }} still await{{ dash.awaiting_today|pluralize:"s," }} the Dealer's approval.{% endif %}
+  From {{ dash.card_count }} shift card{{ dash.card_count|pluralize }} saved for this day.
+  <a href="{% url 'sales:sheet_create' %}">New shift card</a>
 </p>
 
 <div class="row g-4 mb-4">
@@ -99,13 +84,14 @@
     <div class="card h-100">
       <div class="card-header">Money received on {{ dash.day|date:"d M" }}</div>
       <div class="card-body">
-        {% if dash.payments.rows or dash.payments.credit %}
-          <div class="chart-box chart-box-sm"><canvas id="payments-chart" role="img" aria-label="Bar chart of the day's collections by payment method. A table version follows."></canvas></div>
+        {% if dash.card_count %}
+          <div class="chart-box chart-box-sm"><canvas id="payments-chart" role="img" aria-label="Bar chart of the day's money by payment type. A table version follows."></canvas></div>
         {% endif %}
         <table class="table table-sm mt-2 mb-0">
           <tbody>
-            {% for row in dash.payments.rows %}<tr><td>{{ row.method__name }}</td><td class="num">{{ row.total|inr }}</td></tr>{% empty %}<tr><td class="text-muted">No collections recorded</td></tr>{% endfor %}
-            <tr><td>Credit sales</td><td class="num">{{ dash.payments.credit|inr }}</td></tr>
+            {% for label, amount in dash.payments.rows %}<tr><td>{{ label }}</td><td class="num">{{ amount|inr }}</td></tr>{% endfor %}
+            <tr><td>Exp / cash by DSM</td><td class="num">{{ dash.payments.expenses|inr }}</td></tr>
+            <tr><td class="fw-semibold">Balance / short</td><td class="num fw-semibold">{% if dash.payments.balance < 0 %}<span class="status status-danger">Short {{ dash.payments.balance|inr }}</span>{% else %}{{ dash.payments.balance|inr }}{% endif %}</td></tr>
           </tbody>
         </table>
         <dl class="detail-list mt-3 mb-0 small">
@@ -170,11 +156,14 @@
 <div class="row g-4">
   <div class="{% if user.is_dealer %}col-xl-6{% else %}col-12{% endif %}">
     <div class="card table-card h-100">
-      <div class="card-header">Exceptions in the last 30 days</div>
-      {% if dash.exceptions.flagged_stock or dash.exceptions.meter_resets %}
+      <div class="card-header">Exceptions <span class="small text-muted fw-normal">(cash: last 7 days, stock and meters: last 30)</span></div>
+      {% if dash.exceptions.flagged_stock or dash.exceptions.meter_resets or dash.exceptions.short_cards %}
         <div class="table-responsive">
           <table class="table align-middle">
             <tbody>
+              {% for row in dash.exceptions.short_cards %}
+                <tr><td><span class="status status-danger"><i class="bi bi-cash-coin" aria-hidden="true"></i> Cash short</span></td><td>{{ row.card.outlet.code }} · {{ row.card.business_date|date:"d M" }} {{ row.card.shift.name }}{% if row.card.employee %} · {{ row.card.employee }}{% endif %}</td><td class="num">{{ row.balance|inr }}</td><td><a href="{{ row.card.get_absolute_url }}">View</a></td></tr>
+              {% endfor %}
               {% for line in dash.exceptions.flagged_stock %}
                 <tr><td><span class="status status-danger"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i> Stock variation</span></td><td>{{ line.sheet.outlet.code }} · {{ line.tank.code }} · {{ line.sheet.business_date|date:"d M" }}</td><td class="num">{{ line.variation|qty }} L</td><td><a href="{{ line.sheet.get_absolute_url }}">View</a></td></tr>
               {% endfor %}
@@ -185,7 +174,7 @@
           </table>
         </div>
       {% else %}
-        <div class="empty-state"><i class="bi bi-shield-check" aria-hidden="true"></i><div class="title">No exceptions</div><div>No stock variations beyond tank limits and no meter resets.</div></div>
+        <div class="empty-state"><i class="bi bi-shield-check" aria-hidden="true"></i><div class="title">No exceptions</div><div>No cash shortages, no stock variations beyond tank limits and no meter resets.</div></div>
       {% endif %}
     </div>
   </div>

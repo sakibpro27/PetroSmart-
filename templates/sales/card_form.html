@@ -1,0 +1,184 @@
+{% extends "layouts/app.html" %}
+{% load static ps_format %}
+{% block title %}{% if sheet %}Edit shift card{% else %}Shift card{% endif %}{% endblock %}
+{% block breadcrumb %}{{ business.name }} / <a href="{% url 'sales:sheet_list' %}">Shift cards</a>{% if sheet %} / {{ sheet.outlet.code }}{% endif %}{% endblock %}
+
+{% block content %}
+<form method="post" novalidate class="shift-card" data-shift-card {% if not sheet %}data-new-card{% endif %}>
+  {% csrf_token %}
+
+  {% for error in load_errors %}
+    <div class="alert alert-danger" role="alert"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i><div>{{ error }}</div></div>
+  {% endfor %}
+  {% if header.non_field_errors %}
+    <div class="alert alert-danger" role="alert"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i><div>{{ header.non_field_errors|join:" " }}</div></div>
+  {% endif %}
+
+  {# --- Shift Card header --- #}
+  <section class="sc-box mb-3">
+    <h1 class="sc-title">Shift Card{% if sheet %} <span class="sc-title-sub">{{ sheet.outlet.code }}</span>{% endif %}</h1>
+    <div class="sc-header">
+      <div class="sc-field">{% include "sales/partials/sc_field.html" with field=header.employee %}</div>
+      <div class="sc-field">{% include "sales/partials/sc_field.html" with field=header.business_date %}</div>
+      <div class="sc-field sc-check">{% include "sales/partials/sc_field.html" with field=header.tanker_card %}</div>
+
+      <div class="sc-field">{% include "sales/partials/sc_field.html" with field=header.cashier_name %}</div>
+      <div class="sc-field">{% include "sales/partials/sc_field.html" with field=header.shift %}</div>
+      <div class="sc-field">{% include "sales/partials/sc_field.html" with field=header.time_from %}</div>
+
+      <div class="sc-field">{% include "sales/partials/sc_field.html" with field=header.dispenser %}</div>
+      <div class="sc-field">{% include "sales/partials/sc_field.html" with field=header.helper_name %}</div>
+      <div class="sc-field">{% include "sales/partials/sc_field.html" with field=header.time_to %}</div>
+    </div>
+    {% if not sheet and not rows %}
+      <p class="small text-muted mt-2 mb-0"><i class="bi bi-info-circle" aria-hidden="true"></i> Choose the date, shift and MPD / DU. The pump rows load with their opening readings.</p>
+    {% endif %}
+  </section>
+
+  {# --- Pump readings --- #}
+  {{ nozzles.management_form }}
+  <section class="sc-box sc-table-box mb-3">
+    <div class="table-responsive">
+      <table class="table align-middle sc-table" data-sales-entry>
+        <thead>
+          <tr>
+            <th scope="col">Pump code</th>
+            <th scope="col" class="num">Opening</th>
+            <th scope="col" class="num">Closing</th>
+            <th scope="col" class="num">Sale Ltr</th>
+            <th scope="col" class="num">Testing</th>
+            <th scope="col" class="num">Net Ltr</th>
+            <th scope="col" class="num">Rate</th>
+            <th scope="col" class="num">Sale Rs</th>
+            <th scope="col"><span class="visually-hidden">More</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for form, row in rows %}
+            <tr class="entry-row{% if form.errors %} has-error{% endif %}" data-opening="{{ row.opening }}" data-price="{{ row.price }}" data-extra="extra-{{ forloop.counter0 }}">
+              <th scope="row" class="text-nowrap">
+                {{ form.nozzle_id }}
+                <span class="fw-semibold">{{ row.nozzle.code }}</span>
+                <span class="fuel-tag fuel-{{ row.nozzle.product.category|lower }} ms-1">{{ row.nozzle.product.code }}</span>
+              </th>
+              <td class="num">{{ row.opening|qty }}</td>
+              <td class="entry-col">
+                <label class="visually-hidden" for="{{ form.closing_reading.id_for_label }}">Closing reading for {{ row.nozzle.code }}</label>
+                {{ form.closing_reading }}
+                {% include "partials/field_feedback.html" with field=form.closing_reading %}
+              </td>
+              <td class="num" data-out="delivery">—</td>
+              <td class="entry-col entry-col-sm">
+                <label class="visually-hidden" for="{{ form.testing_litres.id_for_label }}">Testing litres for {{ row.nozzle.code }}</label>
+                {{ form.testing_litres }}
+                {% include "partials/field_feedback.html" with field=form.testing_litres %}
+              </td>
+              <td class="num fw-semibold" data-out="net">—</td>
+              <td class="num">{{ row.price }}</td>
+              <td class="num" data-out="value">—</td>
+              <td class="text-end"><button type="button" class="btn btn-sm btn-outline-secondary" data-toggle-extra="extra-{{ forloop.counter0 }}" aria-controls="extra-{{ forloop.counter0 }}" aria-expanded="true">More</button></td>
+            </tr>
+            <tr class="entry-extra" id="extra-{{ forloop.counter0 }}" data-keep-open="{% if form.meter_reset.value or form.notes.value or form.errors %}1{% endif %}">
+              <td colspan="9">
+                <div class="small text-danger mb-1" data-out="problem" aria-live="polite"></div>
+                {% for error in form.non_field_errors %}<div class="errorlist"><i class="bi bi-exclamation-circle" aria-hidden="true"></i> {{ error }}</div>{% endfor %}
+                <div class="row g-2 align-items-start">
+                  <div class="col-lg-4"><label class="form-label small" for="{{ form.notes.id_for_label }}">Notes for {{ row.nozzle.code }}</label>{{ form.notes }}{% include "partials/field_feedback.html" with field=form.notes %}</div>
+                  <div class="col-lg-3 pt-lg-4"><div class="form-check">{{ form.meter_reset }}<label class="form-check-label small" for="{{ form.meter_reset.id_for_label }}">{{ form.meter_reset.label }}</label></div></div>
+                  <div class="col-sm-6 col-lg-2" data-reset-field><label class="form-label small" for="{{ form.reading_before_reset.id_for_label }}">{{ form.reading_before_reset.label }}</label>{{ form.reading_before_reset }}{% include "partials/field_feedback.html" with field=form.reading_before_reset %}</div>
+                  <div class="col-sm-6 col-lg-3" data-reset-field><label class="form-label small" for="{{ form.reading_after_reset.id_for_label }}">{{ form.reading_after_reset.label }}</label>{{ form.reading_after_reset }}{% include "partials/field_feedback.html" with field=form.reading_after_reset %}</div>
+                </div>
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="9" class="text-muted text-center py-4">No pumps loaded yet.</td></tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th scope="row" colspan="3">Total</th>
+            <td class="num" data-total="delivery">—</td>
+            <td class="num" data-total="testing">—</td>
+            <td class="num fw-semibold" data-total="net">—</td>
+            <td></td>
+            <td class="num fw-semibold" data-total="value">—</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <div class="sc-help">Sale Ltr = closing − opening. Net Ltr = Sale Ltr − testing. Sale Rs = Net Ltr × rate. Testing litres are never counted as sales.</div>
+  </section>
+
+  {# --- Money details and totals --- #}
+  <div class="row g-3 mb-3">
+    <div class="col-lg-5">
+      <section class="sc-box h-100">
+        <h2 class="sc-title">Money Details</h2>
+        <table class="table table-sm align-middle sc-money mb-0">
+          <tbody>
+            {% for value, field in money_fields %}
+              <tr>
+                <th scope="row" class="text-end fw-normal text-nowrap"><label for="{{ field.id_for_label }}">{{ value }} ×</label></th>
+                <td>{{ field }}{% include "partials/field_feedback.html" with field=field %}</td>
+                <td class="num" data-note-amount="{{ value }}">—</td>
+              </tr>
+            {% endfor %}
+            <tr>
+              <th scope="row" class="text-end fw-normal">Coins</th>
+              <td colspan="2">{{ header.coins }}{% include "partials/field_feedback.html" with field=header.coins %}</td>
+            </tr>
+            <tr>
+              <th scope="row" class="text-end">Total</th>
+              <td colspan="2" class="num fw-semibold" data-money-total>—</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </div>
+
+    <div class="col-lg-7">
+      <section class="sc-box h-100">
+        <h2 class="sc-title">Totals</h2>
+        <dl class="sc-totals mb-0">
+          <dt>Total Fuel (Rs)</dt><dd data-sum-out="fuel">—</dd>
+          <dt><button type="button" class="sc-link" data-open="lubes">Lube / Oil Sale</button></dt><dd data-sum-out="lubes">—</dd>
+          <dt><button type="button" class="sc-link" data-open="receipts">Customer Receipt</button></dt><dd data-sum-out="receipts">—</dd>
+          <dt class="sc-rule">Cash Collection</dt><dd class="sc-rule" data-sum-out="cash">—</dd>
+          <dt><button type="button" class="sc-link" data-open="credit">Credit Sale</button></dt><dd data-sum-out="credit">—</dd>
+          <dt><label for="{{ header.general_credit.id_for_label }}">Gen. Credit Sale</label></dt>
+          <dd class="sc-input">{{ header.general_credit }}{% include "partials/field_feedback.html" with field=header.general_credit %}</dd>
+          <dt class="sc-sub"><label for="{{ header.general_credit_party.id_for_label }}">Gen. credit party</label></dt>
+          <dd class="sc-input">{{ header.general_credit_party }}{% include "partials/field_feedback.html" with field=header.general_credit_party %}</dd>
+          <dt><label for="{{ header.bank_card.id_for_label }}">Bank Card</label></dt><dd class="sc-input">{{ header.bank_card }}</dd>
+          <dt><label for="{{ header.company_card.id_for_label }}">Company Card</label></dt><dd class="sc-input">{{ header.company_card }}</dd>
+          <dt><label for="{{ header.phone_wallet.id_for_label }}">Phone Wallet</label></dt><dd class="sc-input">{{ header.phone_wallet }}</dd>
+          <dt><button type="button" class="sc-link" data-open="expenses">Exp / Cash by DSM</button></dt><dd data-sum-out="expenses">—</dd>
+          <dt class="sc-rule">Balance / Short</dt><dd class="sc-rule sc-balance" data-sum-out="balance" aria-live="polite">—</dd>
+        </dl>
+        <div class="sc-help mt-2">Balance = Cash Collection − (Total Fuel + Lube + Customer Receipt − Credit − Gen. Credit − Bank Card − Company Card − Phone Wallet − Exp by DSM). A negative balance is a shortage.</div>
+      </section>
+    </div>
+  </div>
+
+  {# --- Detail rows behind the blue links --- #}
+  {% include "sales/partials/detail_formset.html" with key="lubes" title="Lube / Oil Sale" formset=details.lubes hint="Sold at the pump. Reduces lube stock at this outlet." %}
+  {% include "sales/partials/detail_formset.html" with key="receipts" title="Customer Receipt" formset=details.receipts hint="Cash received from credit customers at the pump. Reduces their balance." %}
+  {% include "sales/partials/detail_formset.html" with key="credit" title="Credit Sale" formset=details.credit hint="Fuel given on credit. Added to the customer's balance." %}
+  {% include "sales/partials/detail_formset.html" with key="expenses" title="Exp / Cash by DSM" formset=details.expenses hint="Cash paid out by the attendant. Recorded in Expenses." %}
+
+  <section class="sc-box mb-3">
+    <div class="sc-field sc-remark">{% include "sales/partials/sc_field.html" with field=header.notes %}</div>
+  </section>
+
+  {% if block_reason %}<div class="alert alert-warning"><i class="bi bi-lock" aria-hidden="true"></i><div>{{ block_reason }}</div></div>{% endif %}
+
+  <div class="sc-buttons">
+    <button type="submit" name="action" value="save" class="btn btn-primary" data-busy-text="Saving…" {% if not rows %}disabled{% endif %}>Save</button>
+    <button type="submit" name="action" value="print" class="btn btn-outline-secondary" data-busy-text="Saving…" {% if not rows %}disabled{% endif %}>Save &amp; Print</button>
+    {% if sheet %}<a class="btn btn-outline-secondary" href="{{ sheet.get_absolute_url }}">Back</a>{% else %}<a class="btn btn-outline-secondary" href="{% url 'sales:sheet_list' %}">Back</a>{% endif %}
+  </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}{{ lube_prices|json_script:"lube-prices" }}<script src="{% static 'js/shift-card.js' %}"></script>{% endblock %}

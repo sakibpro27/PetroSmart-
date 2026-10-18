@@ -1,139 +1,133 @@
 {% extends "layouts/app.html" %}
 {% load ps_format %}
-{% block title %}Daily Sales {{ sheet.business_date|date:"d M Y" }}{% endblock %}
-{% block breadcrumb %}{{ business.name }} / <a href="{% url 'sales:sheet_list' %}">Daily Sales</a> / {{ sheet.outlet.code }}{% endblock %}
+{% block title %}Shift card {{ sheet.business_date|date:"d M Y" }}{% endblock %}
+{% block breadcrumb %}{{ business.name }} / <a href="{% url 'sales:sheet_list' %}">Shift cards</a> / {{ sheet.outlet.code }}{% endblock %}
 
 {% block content %}
-<div class="page-header">
+<div class="page-header no-print">
   <div>
-    <h1>{{ sheet.business_date|date:"d M Y" }} · {{ sheet.shift.name }} shift</h1>
-    <p class="subtitle">{{ sheet.outlet.name }} ({{ sheet.outlet.code }}) · {% include "sales/partials/status.html" with status=sheet.status label=sheet.get_status_display %}</p>
+    <h1>Shift card · {{ sheet.business_date|date:"d M Y" }} · {{ sheet.shift.name }}</h1>
+    <p class="subtitle">{{ sheet.outlet.name }} ({{ sheet.outlet.code }}){% if sheet.dispenser %} · {{ sheet.dispenser }}{% endif %}{% if sheet.employee %} · {{ sheet.employee }}{% endif %}</p>
   </div>
   <div class="d-flex gap-2 flex-wrap">
-    {% if can_edit %}<a class="btn btn-primary" href="{% url 'sales:sheet_edit' sheet.pk %}"><i class="bi bi-pencil me-1" aria-hidden="true"></i> Continue entry</a>{% endif %}
-    {% if can_request_correction %}<a class="btn btn-outline-secondary" href="{% url 'sales:correction_create' sheet.pk %}"><i class="bi bi-pencil-square me-1" aria-hidden="true"></i> Request correction</a>{% endif %}
+    <button type="button" class="btn btn-outline-secondary" onclick="window.print()"><i class="bi bi-printer me-1" aria-hidden="true"></i> Print</button>
+    {% if can_change %}
+      <a class="btn btn-primary" href="{% url 'sales:sheet_edit' sheet.pk %}"><i class="bi bi-pencil me-1" aria-hidden="true"></i> Edit</a>
+      <form method="post" action="{% url 'sales:sheet_delete' sheet.pk %}" data-confirm="Delete this shift card? Its credit sales, receipts, lube sales and expenses are deleted too. The deletion is recorded in the audit log.">
+        {% csrf_token %}<button type="submit" class="btn btn-outline-secondary"><i class="bi bi-trash me-1" aria-hidden="true"></i> Delete</button>
+      </form>
+    {% elif can_correct %}
+      <a class="btn btn-outline-secondary" href="{% url 'sales:correction_create' sheet.pk %}"><i class="bi bi-pencil-square me-1" aria-hidden="true"></i> Correct readings</a>
+    {% endif %}
   </div>
 </div>
 
-{% if sheet.review_note and sheet.status == "DRAFT" %}
-  <div class="alert alert-warning"><i class="bi bi-arrow-return-left" aria-hidden="true"></i><div><strong>Sent back by the Dealer:</strong> {{ sheet.review_note }}</div></div>
-{% endif %}
-
-{# --- Summary tiles: testing litres shown separately, never inside sales --- #}
-<div class="row g-3 mb-4">
-  <div class="col-6 col-xl-3"><div class="stat"><div class="stat-label">Total nozzle delivery</div><div class="stat-value">{{ grand_total.total_delivery|qty }} L</div><div class="stat-meta">Fuel that left the tanks</div></div></div>
-  <div class="col-6 col-xl-3"><div class="stat"><div class="stat-label">Testing litres</div><div class="stat-value">{{ grand_total.testing_litres|qty }} L</div><div class="stat-meta">Not counted as sales</div></div></div>
-  <div class="col-6 col-xl-3"><div class="stat"><div class="stat-label">Net customer sales</div><div class="stat-value">{{ grand_total.net_sales_litres|qty }} L</div><div class="stat-meta">Delivery − testing</div></div></div>
-  <div class="col-6 col-xl-3"><div class="stat"><div class="stat-label">Customer sales value</div><div class="stat-value">{{ grand_total.sales_value|inr }}</div><div class="stat-meta">Net sales × price</div></div></div>
+<div class="print-only print-heading">
+  <strong>{{ business.name }}</strong> · Shift card · {{ sheet.outlet.name }} ({{ sheet.outlet.code }})
 </div>
 
-<div class="card table-card mb-4">
-  <div class="card-header">Nozzle readings</div>
+<section class="sc-box mb-3">
+  <h2 class="sc-title">Shift Card</h2>
+  <dl class="sc-header sc-header-read">
+    <div><dt>Employee</dt><dd>{{ sheet.employee|default:"—" }}</dd></div>
+    <div><dt>Date</dt><dd>{{ sheet.business_date|date:"d M Y" }}</dd></div>
+    <div><dt>Tanker card</dt><dd>{{ sheet.tanker_card|yesno:"Yes,No" }}</dd></div>
+    <div><dt>Cashier</dt><dd>{{ sheet.cashier_name|default:"—" }}</dd></div>
+    <div><dt>Shift</dt><dd>{{ sheet.shift.name }}</dd></div>
+    <div><dt>Time from</dt><dd>{{ sheet.time_from|time:"H:i"|default:"—" }}</dd></div>
+    <div><dt>MPD / DU</dt><dd>{{ sheet.dispenser|default:"—" }}</dd></div>
+    <div><dt>Helper</dt><dd>{{ sheet.helper_name|default:"—" }}</dd></div>
+    <div><dt>Time to</dt><dd>{{ sheet.time_to|time:"H:i"|default:"—" }}</dd></div>
+  </dl>
+</section>
+
+<section class="sc-box sc-table-box mb-3">
   <div class="table-responsive">
-    <table class="table table-hover align-middle">
+    <table class="table align-middle sc-table">
       <thead>
-        <tr>
-          <th scope="col">Nozzle</th><th scope="col" class="num">Opening (L)</th><th scope="col" class="num">Closing (L)</th>
-          <th scope="col" class="num">Total delivery (L)</th><th scope="col" class="num">Testing (L)</th><th scope="col" class="num">Net sales (L)</th>
-          <th scope="col" class="num">Price (₹/L)</th><th scope="col" class="num">Sales value</th><th scope="col">Notes</th>
-        </tr>
+        <tr><th scope="col">Pump code</th><th scope="col" class="num">Opening</th><th scope="col" class="num">Closing</th><th scope="col" class="num">Sale Ltr</th><th scope="col" class="num">Testing</th><th scope="col" class="num">Net Ltr</th><th scope="col" class="num">Rate</th><th scope="col" class="num">Sale Rs</th></tr>
       </thead>
       <tbody>
         {% for line in lines %}
           <tr>
-            <th scope="row" class="text-nowrap"><span class="fw-semibold">{{ line.nozzle.code }}</span> <span class="fuel-tag fuel-{{ line.product.category|lower }} ms-1">{{ line.product.code }}</span></th>
+            <th scope="row" class="text-nowrap"><span class="fw-semibold">{{ line.nozzle.code }}</span> <span class="fuel-tag fuel-{{ line.product.category|lower }} ms-1">{{ line.product.code }}</span>
+              {% if line.meter_reset %}<div><span class="status status-warning"><i class="bi bi-arrow-repeat" aria-hidden="true"></i> Meter reset {{ line.reading_before_reset|qty }} → {{ line.reading_after_reset|qty }}</span></div>{% endif %}
+              {% if line.notes %}<div class="small text-muted fw-normal">{{ line.notes }}</div>{% endif %}
+            </th>
             <td class="num">{{ line.opening_reading|qty }}</td>
             <td class="num">{{ line.closing_reading|qty }}</td>
             <td class="num">{{ line.total_delivery|qty }}</td>
             <td class="num">{{ line.testing_litres|qty }}</td>
             <td class="num fw-semibold">{{ line.net_sales_litres|qty }}</td>
             <td class="num">{{ line.price_per_litre }}</td>
-            <td class="num">{{ line.sales_value|inr }}</td>
-            <td class="small">
-              {% if line.meter_reset %}<span class="status status-warning mb-1"><i class="bi bi-arrow-repeat" aria-hidden="true"></i> Meter reset: {{ line.reading_before_reset|qty }} → {{ line.reading_after_reset|qty }}</span><br>{% endif %}
-              {{ line.notes }}
-            </td>
+            <td class="num">{{ line.sales_value|qty }}</td>
           </tr>
         {% endfor %}
       </tbody>
-      <tfoot>
-        {% for name, t in product_totals.items %}
-          <tr class="subtotal">
-            <th scope="row" colspan="3">{{ name }}</th>
-            <td class="num">{{ t.total_delivery|qty }}</td><td class="num">{{ t.testing_litres|qty }}</td>
-            <td class="num fw-semibold">{{ t.net_sales_litres|qty }}</td><td></td><td class="num fw-semibold">{{ t.sales_value|inr }}</td><td></td>
-          </tr>
-        {% endfor %}
-      </tfoot>
     </table>
   </div>
+</section>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-5">
+    <section class="sc-box h-100">
+      <h2 class="sc-title">Money Details</h2>
+      <table class="table table-sm align-middle sc-money mb-0">
+        <tbody>
+          {% for note, count, amount in money_rows %}<tr><th scope="row" class="text-end fw-normal">{{ note }} ×</th><td class="num">{{ count }}</td><td class="num">{{ amount|qty }}</td></tr>{% endfor %}
+          <tr><th scope="row" class="text-end fw-normal">Coins</th><td></td><td class="num">{{ sheet.coins|qty }}</td></tr>
+          <tr><th scope="row" class="text-end">Total</th><td></td><td class="num fw-semibold">{{ figures.cash_collection|inr }}</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+  <div class="col-md-7">
+    <section class="sc-box h-100">
+      <h2 class="sc-title">Totals</h2>
+      <dl class="sc-totals mb-0">
+        <dt>Total Fuel (Rs)</dt><dd>{{ figures.total_fuel|inr }}</dd>
+        <dt>Lube / Oil Sale</dt><dd>{{ figures.lube|inr }}</dd>
+        <dt>Customer Receipt</dt><dd>{{ figures.customer_receipts|inr }}</dd>
+        <dt class="sc-rule">Cash Collection</dt><dd class="sc-rule">{{ figures.cash_collection|inr }}</dd>
+        <dt>Credit Sale</dt><dd>{{ figures.credit|inr }}</dd>
+        <dt>Gen. Credit Sale</dt><dd>{{ figures.general_credit|inr }}{% if sheet.general_credit_party %} <span class="small text-muted">({{ sheet.general_credit_party }})</span>{% endif %}</dd>
+        <dt>Bank Card</dt><dd>{{ figures.bank_card|inr }}</dd>
+        <dt>Company Card</dt><dd>{{ figures.company_card|inr }}</dd>
+        <dt>Phone Wallet</dt><dd>{{ figures.phone_wallet|inr }}</dd>
+        <dt>Exp / Cash by DSM</dt><dd>{{ figures.expenses|inr }}</dd>
+        <dt class="sc-rule">Balance / Short</dt>
+        <dd class="sc-rule">
+          {% if figures.balance < 0 %}<span class="status status-danger"><i class="bi bi-arrow-down" aria-hidden="true"></i> Short {{ figures.balance|inr }}</span>
+          {% elif figures.balance > 0 %}<span class="status status-warning"><i class="bi bi-arrow-up" aria-hidden="true"></i> Excess {{ figures.balance|inr }}</span>
+          {% else %}<span class="status status-success"><i class="bi bi-check-circle" aria-hidden="true"></i> ₹0.00 (matches)</span>{% endif %}
+        </dd>
+      </dl>
+    </section>
+  </div>
 </div>
 
-{% if collection %}
-  {% include "sales/partials/payments_summary.html" %}
-{% elif can_edit %}
-  <div class="alert alert-info"><i class="bi bi-info-circle" aria-hidden="true"></i><div>The cash, UPI, card and credit breakdown is entered on the <a href="{% url 'sales:sheet_edit' sheet.pk %}">entry page</a>.</div></div>
+{% if lube_sales or receipts or credit_sales or expenses %}
+  <div class="row g-3 mb-3">
+    {% if lube_sales %}<div class="col-md-6"><section class="sc-box h-100"><h2 class="sc-title">Lube / Oil Sale</h2><table class="table table-sm mb-0"><tbody>{% for m in lube_sales %}<tr><td>{{ m.item }}</td><td class="num">{{ m.quantity|qty }} × {{ m.rate }}</td><td class="num">{{ m.amount|inr }}</td></tr>{% endfor %}</tbody></table></section></div>{% endif %}
+    {% if receipts %}<div class="col-md-6"><section class="sc-box h-100"><h2 class="sc-title">Customer Receipt</h2><table class="table table-sm mb-0"><tbody>{% for r in receipts %}<tr><td><a href="{{ r.customer.get_absolute_url }}">{{ r.customer }}</a>{% if r.reference %} <span class="small text-muted">{{ r.reference }}</span>{% endif %}</td><td class="num">{{ r.amount|inr }}</td></tr>{% endfor %}</tbody></table></section></div>{% endif %}
+    {% if credit_sales %}<div class="col-md-6"><section class="sc-box h-100"><h2 class="sc-title">Credit Sale</h2><table class="table table-sm mb-0"><tbody>{% for c in credit_sales %}<tr><td><a href="{{ c.customer.get_absolute_url }}">{{ c.customer }}</a><span class="small text-muted">{% if c.vehicle_number %} · {{ c.vehicle_number }}{% endif %}{% if c.slip_number %} · slip {{ c.slip_number }}{% endif %}</span></td><td class="num">{{ c.amount|inr }}</td></tr>{% endfor %}</tbody></table></section></div>{% endif %}
+    {% if expenses %}<div class="col-md-6"><section class="sc-box h-100"><h2 class="sc-title">Exp / Cash by DSM</h2><table class="table table-sm mb-0"><tbody>{% for e in expenses %}<tr><td>{{ e.description }} <span class="small text-muted">{{ e.category }}</span></td><td class="num">{{ e.amount|inr }}</td></tr>{% endfor %}</tbody></table></section></div>{% endif %}
+  </div>
 {% endif %}
 
-<div class="row g-4">
-  <div class="col-lg-6">
-    <div class="card mb-4">
-      <div class="card-header">History</div>
-      <div class="card-body">
-        <dl class="detail-list">
-          <dt>Entered by</dt><dd>{{ sheet.entered_by.get_full_name|default:sheet.entered_by.username }} · {{ sheet.created_at|date:"d M Y, H:i" }}</dd>
-          <dt>Submitted</dt><dd>{% if sheet.submitted_at %}{{ sheet.submitted_by.get_full_name|default:sheet.submitted_by.username }} · {{ sheet.submitted_at|date:"d M Y, H:i" }}{% else %}—{% endif %}</dd>
-          <dt>Approved</dt><dd>{% if sheet.approved_at %}{{ sheet.approved_by.get_full_name|default:sheet.approved_by.username }} · {{ sheet.approved_at|date:"d M Y, H:i" }}{% else %}—{% endif %}</dd>
-          {% if sheet.notes %}<dt>Manager's notes</dt><dd>{{ sheet.notes|linebreaksbr }}</dd>{% endif %}
-        </dl>
-      </div>
-    </div>
-  </div>
+{% if sheet.notes %}<section class="sc-box mb-3"><strong>Remark:</strong> {{ sheet.notes }}</section>{% endif %}
 
-  {% if can_review %}
-    <div class="col-lg-6">
-      <div class="card mb-4">
-        <div class="card-header">Dealer review</div>
-        <div class="card-body">
-          <p class="small text-muted">Approving locks these figures. It does not change any reading. Later changes need a correction, which keeps the old values.</p>
-          <form method="post" action="{% url 'sales:sheet_approve' sheet.pk %}" class="mb-3" data-confirm="Approve this Daily Sales sheet?">
-            {% csrf_token %}
-            <button type="submit" class="btn btn-primary" data-busy-text="Approving…"><i class="bi bi-check-lg me-1" aria-hidden="true"></i> Approve sheet</button>
-          </form>
-          {% if can_return %}
-            <form method="post" action="{% url 'sales:sheet_return' sheet.pk %}">
-              {% csrf_token %}
-              <label class="form-label" for="return-note">Or send back to the manager with a note</label>
-              <textarea class="form-control mb-2" id="return-note" name="note" rows="2" required></textarea>
-              <button type="submit" class="btn btn-outline-secondary">Send back for changes</button>
-            </form>
-          {% else %}
-            <p class="small text-muted mb-0">This sheet cannot be sent back because a later sheet already starts from its closing readings. Approve it and request a correction if something is wrong.</p>
-          {% endif %}
-        </div>
-      </div>
-    </div>
-  {% endif %}
-</div>
+<p class="small text-muted">Saved by {{ sheet.entered_by.get_full_name|default:sheet.entered_by.username }} on {{ sheet.created_at|date:"d M Y, H:i" }}{% if sheet.updated_by %} · last edited by {{ sheet.updated_by.get_full_name|default:sheet.updated_by.username }} on {{ sheet.updated_at|date:"d M Y, H:i" }}{% endif %}</p>
 
-{# --- Corrections and their history --- #}
 {% if corrections %}
-  <div class="card table-card mb-4">
+  <div class="card table-card mb-4 no-print">
     <div class="card-header">Corrections</div>
     {% for correction in corrections %}
       <div class="correction">
-        <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
-          <div>
-            {% include "sales/partials/status.html" with status=correction.status label=correction.get_status_display %}
-            <span class="small text-muted ms-2">Requested by {{ correction.requested_by.get_full_name|default:correction.requested_by.username }} · {{ correction.requested_at|date:"d M Y, H:i" }}</span>
-          </div>
-          {% if correction.reviewed_at %}<span class="small text-muted">Reviewed by {{ correction.reviewed_by.get_full_name|default:correction.reviewed_by.username }} · {{ correction.reviewed_at|date:"d M Y, H:i" }}</span>{% endif %}
-        </div>
-        <p class="mb-2"><strong>Reason:</strong> {{ correction.reason }}</p>
-        {% if correction.review_note %}<p class="mb-2"><strong>Dealer's note:</strong> {{ correction.review_note }}</p>{% endif %}
+        <p class="mb-2"><strong>{{ correction.requested_at|date:"d M Y, H:i" }}</strong> by {{ correction.requested_by.get_full_name|default:correction.requested_by.username }} · {{ correction.reason }}</p>
         <div class="table-responsive">
-          <table class="table table-sm align-middle mb-2">
-            <thead><tr><th scope="col">Nozzle</th><th scope="col" class="num">Closing (L)</th><th scope="col" class="num">Testing (L)</th><th scope="col" class="num">Price (₹/L)</th><th scope="col">Next shift's opening</th></tr></thead>
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr><th scope="col">Pump</th><th scope="col" class="num">Closing</th><th scope="col" class="num">Testing</th><th scope="col" class="num">Rate</th><th scope="col">Next card's opening</th></tr></thead>
             <tbody>
               {% for item in correction.lines.all %}
                 <tr>
@@ -141,27 +135,16 @@
                   <td class="num">{{ item.old_closing_reading|qty }} → <strong>{{ item.new_closing_reading|qty }}</strong></td>
                   <td class="num">{{ item.old_testing_litres|qty }} → <strong>{{ item.new_testing_litres|qty }}</strong></td>
                   <td class="num">{{ item.old_price_per_litre }} → <strong>{{ item.new_price_per_litre }}</strong></td>
-                  <td class="small">{% if item.next_line_id %}{{ item.next_old_opening|qty }} → {{ item.next_new_opening|qty }}{% elif item.closing_changed and correction.status == "PENDING" %}Will be updated if a later sheet exists{% else %}—{% endif %}</td>
+                  <td class="small">{% if item.next_old_opening is not None %}{{ item.next_old_opening|qty }} → {{ item.next_new_opening|qty }}{% else %}—{% endif %}</td>
                 </tr>
               {% endfor %}
             </tbody>
           </table>
         </div>
-        {% if user.is_dealer and correction.status == "PENDING" %}
-          <form method="post" action="{% url 'sales:correction_review' correction.pk %}" class="row g-2 align-items-end">
-            {% csrf_token %}
-            <div class="col-md-7">
-              <label class="form-label small" for="review-note-{{ correction.pk }}">Note (required to reject)</label>
-              <input class="form-control" id="review-note-{{ correction.pk }}" name="note" maxlength="1000">
-            </div>
-            <div class="col-md-5 d-flex gap-2">
-              <button type="submit" name="action" value="approve" class="btn btn-primary">Approve correction</button>
-              <button type="submit" name="action" value="reject" class="btn btn-outline-secondary">Reject</button>
-            </div>
-          </form>
-        {% endif %}
       </div>
     {% endfor %}
   </div>
 {% endif %}
 {% endblock %}
+
+{% block extra_js %}{% if print_now %}<script>window.addEventListener("load", function () { window.print(); });</script>{% endif %}{% endblock %}

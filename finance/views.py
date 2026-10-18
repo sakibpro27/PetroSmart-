@@ -1,23 +1,22 @@
-"""Collections, customer credit, expenses and the operational summary."""
+"""Customer credit, expenses, payment settings and the operational summary."""
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.db.models import Sum
-from django.shortcuts import get_object_or_404, redirect, render
+from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
 from django.utils.functional import cached_property
 from django.views import View
 from django.views.generic import CreateView, FormView, ListView, TemplateView, UpdateView
 
 from core.crud import TenantFormViewMixin
-from sales.forms import ReviewNoteForm
 from sales.services import viewable_outlets
 from tenants.permissions import BusinessMemberRequiredMixin, DealerRequiredMixin
 
 from . import services
 from .forms import (
-    CollectionLineFormSet, CollectionNotesForm, CreditAdjustmentForm, CreditCustomerForm, CreditSaleFormSet,
-    CustomerPaymentForm, ExpenseCategoryForm, ExpenseForm, NewCollectionForm, PaymentMethodForm, PeriodFilterForm,
+    CreditAdjustmentForm, CreditCustomerForm, CustomerPaymentForm, ExpenseCategoryForm, ExpenseForm, PaymentMethodForm,
+    PeriodFilterForm,
 )
 from .models import CreditCustomer, CustomerPayment, ExpenseCategory, PaymentMethod
 
@@ -58,137 +57,6 @@ class CategoryCreateView(SettingsFormMixin, CreateView):
 
 class CategoryUpdateView(SettingsFormMixin, UpdateView):
     model, form_class = ExpenseCategory, ExpenseCategoryForm
-
-
-# --- Shift collections ----------------------------------------------------------------
-
-
-class CollectionMixin(BusinessMemberRequiredMixin):
-    @cached_property
-    def collection(self):
-        return get_object_or_404(services.collections_for(self.request.user).select_related("outlet", "shift"),
-                                 pk=self.kwargs["pk"])
-
-
-class CollectionListView(BusinessMemberRequiredMixin, ListView):
-    template_name = "finance/collection_list.html"
-    context_object_name = "collections"
-    paginate_by = 25
-
-    def get_queryset(self):
-        return services.collections_for(self.request.user).select_related("outlet", "shift").order_by(
-            "-business_date", "-shift__sort_order", "outlet__code")
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        for collection in context["collections"]:
-            collection.figures = services.collection_figures(collection)
-        return context
-
-
-class CollectionCreateView(BusinessMemberRequiredMixin, FormView):
-    template_name = "crud/form.html"
-    form_class = NewCollectionForm
-
-    def get_form_kwargs(self):
-        return {**super().get_form_kwargs(), "user": self.request.user}
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context.update(page_title="Record shift collections", page_subtitle="Cash, UPI, card and credit for one shift.",
-                       cancel_url=reverse("finance:collection_list"))
-        return context
-
-    def form_valid(self, form):
-        try:
-            collection = services.create_collection(user=self.request.user, shift=form.cleaned_data["shift"],
-                                                    business_date=form.cleaned_data["business_date"], request=self.request)
-        except ValidationError as error:
-            for message in error.messages:
-                form.add_error(None, message)
-            return self.form_invalid(form)
-        return redirect("finance:collection_edit", pk=collection.pk)
-
-
-class CollectionEditView(CollectionMixin, View):
-    template_name = "finance/collection_edit.html"
-
-    def _forms(self, data=None):
-        c = self.collection
-        return (
-            CollectionLineFormSet(data, queryset=c.lines.select_related("method"), prefix="methods"),
-            CreditSaleFormSet(data, queryset=c.credit_sales.select_related("customer"), prefix="credit",
-                              form_kwargs={"business": c.business}),
-            CollectionNotesForm(data, instance=c, prefix="collection"),
-        )
-
-    def _render(self, lines, credit, notes):
-        return render(self.request, self.template_name, {
-            "collection": self.collection, "lines": lines, "credit": credit, "notes_form": notes,
-            "figures": services.collection_figures(self.collection),
-        })
-
-    def get(self, request, *args, **kwargs):
-        if not services.can_edit_collection(self.collection, request.user):
-            return redirect(self.collection)
-        return self._render(*self._forms())
-
-    def post(self, request, *args, **kwargs):
-        if not services.can_edit_collection(self.collection, request.user):
-            messages.error(request, "These collections are verified and locked.")
-            return redirect(self.collection)
-        forms = self._forms(request.POST)
-        if not all(form.is_valid() for form in forms):
-            messages.error(request, "Some amounts need attention. Nothing was saved.")
-            return self._render(*forms)
-        try:
-            services.save_collection(self.collection, *forms, user=request.user, request=request)
-        except ValidationError as error:
-            _errors_to_messages(request, error)
-            return redirect("finance:collection_edit", pk=self.collection.pk)
-        for customer in services.customers_over_limit(self.collection):
-            messages.warning(request, f"{customer.name} is now over their credit limit of ₹{customer.credit_limit}.")
-        messages.success(request, "Collections saved.")
-        return redirect(self.collection)
-
-
-class CollectionDetailView(CollectionMixin, TemplateView):
-    template_name = "finance/collection_detail.html"
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        c, user = self.collection, self.request.user
-        context.update(
-            collection=c, figures=services.collection_figures(c),
-            lines=c.lines.select_related("method"), credit_sales=c.credit_sales.select_related("customer"),
-            can_edit=services.can_edit_collection(c, user),
-            can_verify=user.is_dealer and c.status == c.Status.OPEN,
-            can_reopen=user.is_dealer and c.status == c.Status.VERIFIED,
-            note_form=ReviewNoteForm(),
-        )
-        return context
-
-
-class CollectionVerifyView(DealerRequiredMixin, CollectionMixin, View):
-    def post(self, request, *args, **kwargs):
-        try:
-            services.verify_collection(self.collection, user=request.user, request=request)
-            messages.success(request, "Collections verified and locked.")
-        except ValidationError as error:
-            _errors_to_messages(request, error)
-        return redirect(self.collection)
-
-
-class CollectionReopenView(DealerRequiredMixin, CollectionMixin, View):
-    def post(self, request, *args, **kwargs):
-        form = ReviewNoteForm(request.POST)
-        try:
-            services.reopen_collection(self.collection, user=request.user,
-                                       note=form.cleaned_data["note"] if form.is_valid() else "", request=request)
-            messages.success(request, "Collections reopened for changes.")
-        except ValidationError as error:
-            _errors_to_messages(request, error)
-        return redirect(self.collection)
 
 
 # --- Credit customers ---------------------------------------------------------------------
@@ -270,8 +138,11 @@ class PaymentDeleteView(DealerRequiredMixin, View):
     def post(self, request, pk):
         payment = get_object_or_404(CustomerPayment.objects.for_business(request.business).select_related("customer"), pk=pk)
         customer = payment.customer
-        services.delete_payment(payment, user=request.user, request=request)
-        messages.success(request, "Payment deleted. The deletion is recorded in the audit log.")
+        try:
+            services.delete_payment(payment, user=request.user, request=request)
+            messages.success(request, "Payment deleted. The deletion is recorded in the audit log.")
+        except ValidationError as error:
+            _errors_to_messages(request, error)
         return redirect(customer)
 
 
@@ -306,7 +177,7 @@ class ExpenseListView(BusinessMemberRequiredMixin, ListView):
         expenses = services.expenses_for(self.request.user).filter(expense_date__range=(date_from, date_to))
         if outlet:
             expenses = expenses.filter(outlet=outlet)
-        return expenses.select_related("outlet", "category", "method", "entered_by")
+        return expenses.select_related("outlet", "category", "method", "entered_by", "sheet")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -355,8 +226,11 @@ class ExpenseFormView(BusinessMemberRequiredMixin, FormView):
 class ExpenseDeleteView(BusinessMemberRequiredMixin, View):
     def post(self, request, pk):
         expense = get_object_or_404(services.expenses_for(request.user), pk=pk)
-        services.delete_expense(expense, user=request.user, request=request)
-        messages.success(request, "Expense deleted. The deletion is recorded in the audit log.")
+        try:
+            services.delete_expense(expense, user=request.user, request=request)
+            messages.success(request, "Expense deleted. The deletion is recorded in the audit log.")
+        except ValidationError as error:
+            _errors_to_messages(request, error)
         return redirect("finance:expense_list")
 
 

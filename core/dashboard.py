@@ -1,10 +1,6 @@
 """
-Figures for the dashboard. Every query is limited to the business and to the
-outlets the user may see.
-
-"Today's" sales include sheets that are submitted or approved (not drafts), so
-a manager's figures appear before the Dealer approves them. The dashboard says
-so, and shows how many are still awaiting approval.
+Figures for the dashboard, from the saved Shift Cards. Every query is limited
+to the business and to the outlets the user may see.
 """
 
 from datetime import timedelta
@@ -12,15 +8,15 @@ from decimal import Decimal
 
 from django.db.models import Sum
 
-from finance.models import CollectionLine, CreditSale, Expense
+from finance.models import Expense
 from finance.services import outstanding_total
 from purchases.models import FuelPurchase
-from sales.models import DailySalesLine, DailySalesSheet, SalesCorrection
+from sales.models import DailySalesLine, DailySalesSheet
+from sales.services import card_figures
 from station.models import FuelProduct, Tank
-from stock.models import StockLine, StockSheet
+from stock.models import StockLine
 
 ZERO = Decimal("0")
-COUNTED = (DailySalesSheet.Status.SUBMITTED, DailySalesSheet.Status.APPROVED)
 CHART_DAYS = 14
 
 
@@ -30,7 +26,7 @@ def _sum(qs, field):
 
 def sales_by_category(business, outlets, day):
     lines = DailySalesLine.objects.filter(business=business, sheet__outlet__in=outlets, sheet__business_date=day,
-                                          sheet__status__in=COUNTED, closing_reading__isnull=False)
+                                          closing_reading__isnull=False)
     result = {}
     for category, label in FuelProduct.Category.choices:
         subset = lines.filter(product__category=category)
@@ -51,8 +47,7 @@ def daily_chart(business, outlets, day):
     start = day - timedelta(days=CHART_DAYS - 1)
     rows = (
         DailySalesLine.objects.filter(business=business, sheet__outlet__in=outlets,
-                                      sheet__business_date__range=(start, day), sheet__status__in=COUNTED,
-                                      closing_reading__isnull=False)
+                                      sheet__business_date__range=(start, day), closing_reading__isnull=False)
         .values("sheet__business_date", "product__category").annotate(net=Sum("net_sales_litres"))
     )
     lookup = {(row["sheet__business_date"], row["product__category"]): row["net"] or ZERO for row in rows}
@@ -80,15 +75,19 @@ def tank_stock(business, outlets):
     return result
 
 
-def payments(business, outlets, day):
-    lines = CollectionLine.objects.filter(business=business, collection__outlet__in=outlets,
-                                          collection__business_date=day)
-    rows = list(lines.values("method__name").annotate(total=Sum("amount")).order_by("method__sort_order"))
-    credit = _sum(CreditSale.objects.filter(business=business, collection__outlet__in=outlets,
-                                            collection__business_date=day), "amount")
-    return {"rows": rows, "credit": credit,
-            "chart": {"labels": [r["method__name"] for r in rows] + ["Credit sales"],
-                      "values": [float(r["total"] or 0) for r in rows] + [float(credit)]}}
+def money(cards):
+    """How the day's money was received, across its Shift Cards."""
+    totals = {key: ZERO for key in ("cash_collection", "phone_wallet", "bank_card", "company_card", "credit",
+                                    "general_credit", "expenses", "balance")}
+    for card in cards:
+        figures = card_figures(card)
+        for key in totals:
+            totals[key] += figures[key]
+    rows = [("Cash", totals["cash_collection"]), ("Phone wallet (UPI)", totals["phone_wallet"]),
+            ("Bank card", totals["bank_card"]), ("Company card", totals["company_card"]),
+            ("Credit sales", totals["credit"] + totals["general_credit"])]
+    return {"rows": rows, "expenses": totals["expenses"], "balance": totals["balance"],
+            "chart": {"labels": [label for label, _ in rows], "values": [float(amount) for _, amount in rows]}}
 
 
 def exceptions(business, outlets, day):
@@ -103,39 +102,33 @@ def exceptions(business, outlets, day):
     resets = (DailySalesLine.objects.filter(business=business, sheet__outlet__in=outlets, meter_reset=True,
                                             sheet__business_date__range=(since, day))
               .select_related("nozzle", "sheet__outlet", "sheet__shift").order_by("-sheet__business_date")[:8])
-    return {"flagged_stock": flagged, "meter_resets": list(resets)}
-
-
-def pending(business, outlets):
-    sheets = DailySalesSheet.objects.filter(business=business, outlet__in=outlets)
-    return {
-        "sales_drafts": sheets.filter(status=DailySalesSheet.Status.DRAFT).count(),
-        "sales_submitted": sheets.filter(status=DailySalesSheet.Status.SUBMITTED).count(),
-        "corrections": SalesCorrection.objects.filter(business=business, sheet__outlet__in=outlets,
-                                                      status=SalesCorrection.Status.PENDING).count(),
-        "stock_submitted": StockSheet.objects.filter(business=business, outlet__in=outlets,
-                                                     status=StockSheet.Status.SUBMITTED).count(),
-    }
+    short_cards = []
+    for card in (DailySalesSheet.objects.filter(business=business, outlet__in=outlets,
+                                                business_date__range=(day - timedelta(days=7), day))
+                 .select_related("outlet", "shift", "employee").order_by("-business_date")):
+        balance = card_figures(card)["balance"]
+        if balance < 0:
+            short_cards.append({"card": card, "balance": balance})
+    return {"flagged_stock": flagged, "meter_resets": list(resets), "short_cards": short_cards[:8]}
 
 
 def build(user, outlets, day):
     business = user.business
     sales, totals = sales_by_category(business, outlets, day)
     month_start = day.replace(day=1)
+    cards = DailySalesSheet.objects.filter(business=business, outlet__in=outlets, business_date=day)
     return {
         "day": day,
         "sales": sales,
         "totals": totals,
+        "card_count": cards.count(),
         "chart": daily_chart(business, outlets, day),
         "tanks": tank_stock(business, outlets),
         "deliveries": FuelPurchase.objects.filter(business=business, outlet__in=outlets)
         .select_related("supplier", "product", "outlet").order_by("-delivery_date", "-pk")[:5],
-        "payments": payments(business, outlets, day),
+        "payments": money(cards),
         "month_expenses": _sum(Expense.objects.filter(business=business, outlet__in=outlets,
                                                       expense_date__range=(month_start, day)), "amount"),
         "outstanding": outstanding_total(business) if user.is_dealer else None,
         "exceptions": exceptions(business, outlets, day),
-        "pending": pending(business, outlets),
-        "awaiting_today": DailySalesSheet.objects.filter(business=business, outlet__in=outlets, business_date=day,
-                                                         status=DailySalesSheet.Status.SUBMITTED).count(),
     }

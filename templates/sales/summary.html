@@ -19,7 +19,6 @@
     <div class="col-sm-6 col-lg-2">{% include "partials/form_field.html" with field=form.outlet %}</div>
     <div class="col-sm-6 col-lg-2">{% include "partials/form_field.html" with field=form.product %}</div>
     <div class="col-sm-6 col-lg-2 mb-3"><button type="submit" class="btn btn-primary w-100" data-no-busy>Show</button></div>
-    <div class="col-12">{% include "partials/form_field.html" with field=form.include_submitted %}</div>
   </div>
 </form>
 
@@ -27,7 +26,7 @@
   <div class="card table-card">
     <div class="card-header d-flex justify-content-between flex-wrap gap-2">
       <span>By {{ group_label|lower }} · {{ filters.date_from|date:"d M Y" }} to {{ filters.date_to|date:"d M Y" }}</span>
-      <span class="small text-muted fw-normal">{% if filters.include_submitted %}Approved and awaiting approval{% else %}Approved sheets only{% endif %}</span>
+      <span class="small text-muted fw-normal">All saved shift cards</span>
     </div>
     {% if rows %}
       <div class="table-responsive">

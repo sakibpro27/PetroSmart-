@@ -1,16 +1,10 @@
-from django.urls import path
+﻿from django.urls import path
 
 from . import views
 
 app_name = "finance"
 
 urlpatterns = [
-    path("collections/", views.CollectionListView.as_view(), name="collection_list"),
-    path("collections/new/", views.CollectionCreateView.as_view(), name="collection_create"),
-    path("collections/<int:pk>/", views.CollectionDetailView.as_view(), name="collection_detail"),
-    path("collections/<int:pk>/edit/", views.CollectionEditView.as_view(), name="collection_edit"),
-    path("collections/<int:pk>/verify/", views.CollectionVerifyView.as_view(), name="collection_verify"),
-    path("collections/<int:pk>/reopen/", views.CollectionReopenView.as_view(), name="collection_reopen"),
 
     path("customers/", views.CustomerListView.as_view(), name="customer_list"),
     path("customers/new/", views.CustomerCreateView.as_view(), name="customer_create"),

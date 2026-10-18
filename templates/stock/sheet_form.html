@@ -1,0 +1,77 @@
+{% extends "layouts/app.html" %}
+{% load static ps_format %}
+{% block title %}Tank stock{% endblock %}
+{% block breadcrumb %}{{ business.name }} / <a href="{% url 'stock:sheet_list' %}">Tank stock</a>{% if outlet %} / {{ outlet.code }}{% endif %}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Tank stock{% if day %} · {{ day|date:"d M Y" }}{% endif %}</h1>
+    <p class="subtitle">{% if outlet %}{{ outlet.name }} ({{ outlet.code }}){% else %}Choose the outlet and date to load its tanks.{% endif %}</p>
+  </div>
+  <a class="btn btn-outline-secondary" href="{% url 'stock:receipt_create' %}"><i class="bi bi-truck me-1" aria-hidden="true"></i> Record fuel received</a>
+</div>
+
+{% if pick %}
+  <form method="get" class="card card-body mb-3 filter-bar">
+    <div class="row g-2 align-items-end">
+      <div class="col-sm-5 col-lg-4">{% include "partials/form_field.html" with field=pick.outlet %}</div>
+      <div class="col-sm-4 col-lg-3">{% include "partials/form_field.html" with field=pick.business_date %}</div>
+      <div class="col-sm-3 col-lg-2 mb-3"><button type="submit" class="btn btn-outline-secondary w-100" data-no-busy>Load tanks</button></div>
+    </div>
+  </form>
+{% endif %}
+
+{% for error in load_errors %}<div class="alert alert-danger" role="alert"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i><div>{{ error }}</div></div>{% endfor %}
+{% for problem in problems %}<div class="alert alert-warning" role="alert"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i><div>{{ problem }}</div></div>{% endfor %}
+
+{% if rows %}
+  <div class="alert alert-info">
+    <i class="bi bi-info-circle" aria-hidden="true"></i>
+    <div>
+      Calculated closing = opening + received − total nozzle delivery. The total delivery comes from the saved shift cards and
+      <strong>already includes testing litres</strong>, so they are not subtracted again. All volumes are observed litres (no temperature correction).
+      Save the stock after all of the day's shift cards are saved: shift cards for this date are locked once stock is saved.
+    </div>
+  </div>
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {% if pick %}<input type="hidden" name="outlet" value="{{ outlet.pk }}"><input type="hidden" name="business_date" value="{{ day|date:'Y-m-d' }}">{% endif %}
+    {{ formset.management_form }}
+    <div class="card table-card mb-3">
+      <div class="table-responsive">
+        <table class="table align-middle" data-stock-entry>
+          <thead>{% include "stock/partials/reconciliation_head.html" with entry=True %}</thead>
+          <tbody>
+            {% for form, row in rows %}
+              <tr class="{% if form.errors %}has-error{% endif %}" data-calculated="{{ row.calculated }}" data-alert="{{ row.tank.variation_alert_litres }}">
+                <th scope="row" class="text-nowrap">{{ form.tank_id }}<span class="fw-semibold">{{ row.tank.code }}</span> <span class="fuel-tag fuel-{{ row.tank.product.category|lower }} ms-1">{{ row.tank.product.code }}</span></th>
+                <td class="num">{{ row.opening|qty }}</td>
+                <td class="num">{{ row.fuel_received|qty }}</td>
+                <td class="num">{{ row.total_delivery|qty }}</td>
+                <td class="num text-muted">{{ row.testing_litres|qty }}</td>
+                <td class="num fw-semibold">{{ row.calculated|qty }}</td>
+                <td class="entry-col">
+                  <label class="visually-hidden" for="{{ form.measured_closing.id_for_label }}">Measured closing stock for {{ row.tank.code }}</label>
+                  {{ form.measured_closing }}{% include "partials/field_feedback.html" with field=form.measured_closing %}
+                </td>
+                <td class="num" data-out="variation">—</td>
+                <td style="min-width: 14rem"><label class="visually-hidden" for="{{ form.notes.id_for_label }}">Notes for {{ row.tank.code }}</label>{{ form.notes }}{% include "partials/field_feedback.html" with field=form.notes %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="card-footer small text-muted">A negative variation means less fuel in the tank than the records explain. Variations beyond a tank's alert limit need a note.</div>
+    </div>
+    <div class="card form-card mb-3"><div class="card-body">{% include "partials/form_field.html" with field=notes_form.notes %}</div></div>
+    <div class="d-flex flex-wrap gap-2 justify-content-end">
+      <a class="btn btn-outline-secondary" href="{% if sheet %}{{ sheet.get_absolute_url }}{% else %}{% url 'stock:sheet_list' %}{% endif %}">Back</a>
+      <button type="submit" class="btn btn-primary" data-busy-text="Saving…">Save stock</button>
+    </div>
+  </form>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}<script src="{% static 'js/stock-entry.js' %}"></script>{% endblock %}

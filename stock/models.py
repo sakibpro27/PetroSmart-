@@ -3,7 +3,7 @@ Tank stock (Phase 4).
 
 * TankReceipt - fuel unloaded into a tank (tanker delivery). Phase 5 links
                 these to purchase invoices.
-* StockSheet  - one outlet, one business date. Draft -> Submitted -> Approved.
+* StockSheet  - one outlet, one business date, saved with all dip readings.
 * StockLine   - one tank on that sheet: opening stock, fuel received, total
                 nozzle delivery (with testing litres shown as part of it),
                 calculated closing, measured dip closing and the variation.
@@ -57,21 +57,14 @@ class TankReceipt(TenantOwnedModel):
 
 
 class StockSheet(TenantOwnedModel):
-    class Status(models.TextChoices):
-        DRAFT = "DRAFT", "Draft"
-        SUBMITTED = "SUBMITTED", "Awaiting approval"
-        APPROVED = "APPROVED", "Approved"
+    """Saved in one step with every tank's dip reading. There is no approval step."""
 
     outlet = models.ForeignKey(Outlet, on_delete=models.PROTECT, related_name="stock_sheets")
     business_date = models.DateField()
-    status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT)
     notes = models.TextField(blank=True)
     entered_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
-    submitted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="+")
-    submitted_at = models.DateTimeField(null=True, blank=True)
-    approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="+")
-    approved_at = models.DateTimeField(null=True, blank=True)
-    review_note = models.TextField(blank=True)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+                                   related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -97,7 +90,7 @@ class StockSheet(TenantOwnedModel):
 
 
 class StockLine(TenantOwnedModel):
-    sheet = models.ForeignKey(StockSheet, on_delete=models.PROTECT, related_name="lines")
+    sheet = models.ForeignKey(StockSheet, on_delete=models.CASCADE, related_name="lines")
     tank = models.ForeignKey(Tank, on_delete=models.PROTECT, related_name="stock_lines")
     product = models.ForeignKey(FuelProduct, on_delete=models.PROTECT, related_name="+")
 

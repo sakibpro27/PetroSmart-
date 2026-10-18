@@ -18,8 +18,8 @@ class StockLineInline(admin.TabularInline):
 
 @admin.register(StockSheet)
 class StockSheetAdmin(ReadOnlyAdmin):
-    list_display = ("business_date", "outlet", "status", "business")
-    list_filter = ("status", "business")
+    list_display = ("business_date", "outlet", "entered_by", "business")
+    list_filter = ("business",)
     inlines = [StockLineInline]
 
 

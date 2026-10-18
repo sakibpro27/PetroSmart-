@@ -8,11 +8,12 @@ from decimal import Decimal
 
 from django.db.models import Sum
 
-from finance.models import CreditCustomer, ShiftCollection
-from finance.services import collection_figures, expenses_for
+from finance.models import CreditCustomer
+from finance.services import expenses_for
 from purchases.services import purchases_for
 from sales.models import DailySalesSheet
 from sales.reports import GROUPINGS, sales_summary, summary_lines
+from sales.services import card_figures
 from stock.models import StockLine
 
 from .tables import DATE, LITRES, MONEY, Column, ReportTable
@@ -26,21 +27,10 @@ def _period(params):
     return f"{params['date_from']:%d %b %Y} to {params['date_to']:%d %b %Y}"
 
 
-def _statuses(params):
-    if params.get("include_submitted"):
-        return (DailySalesSheet.Status.APPROVED, DailySalesSheet.Status.SUBMITTED)
-    return (DailySalesSheet.Status.APPROVED,)
-
-
-def _status_note(params):
-    return ("Includes Daily Sales awaiting approval." if params.get("include_submitted")
-            else "Approved Daily Sales only.")
-
-
 def sales_summary_report(user, outlets, params):
     group_by = params.get("group_by") or "day"
     lines = summary_lines(business=user.business, outlets=outlets, date_from=params["date_from"],
-                          date_to=params["date_to"], statuses=_statuses(params), product=params.get("product"))
+                          date_to=params["date_to"], product=params.get("product"))
     rows, totals = sales_summary(lines, group_by)
     return ReportTable(
         title=f"Sales summary by {GROUPINGS[group_by][0].lower()}",
@@ -49,13 +39,13 @@ def sales_summary_report(user, outlets, params):
                  Column("Net customer sales (L)", LITRES), Column("Customer sales value (₹)", MONEY)],
         rows=[[r["label"], r["total_delivery"], r["testing_litres"], r["net_sales_litres"], r["sales_value"]] for r in rows],
         totals=["Total", totals["total_delivery"], totals["testing_litres"], totals["net_sales_litres"], totals["sales_value"]],
-        notes=[TESTING_NOTE, _status_note(params)],
+        notes=[TESTING_NOTE],
     )
 
 
 def nozzle_detail_report(user, outlets, params):
     lines = (summary_lines(business=user.business, outlets=outlets, date_from=params["date_from"],
-                           date_to=params["date_to"], statuses=_statuses(params), product=params.get("product"))
+                           date_to=params["date_to"], product=params.get("product"))
              .select_related("sheet__outlet", "sheet__shift", "nozzle", "product")
              .order_by("sheet__business_date", "sheet__outlet__code", "sheet__shift_sort_order", "nozzle__code"))
     rows = [[l.sheet.business_date, l.sheet.shift.name, l.sheet.outlet.code, l.nozzle.code, l.product.code,
@@ -63,15 +53,15 @@ def nozzle_detail_report(user, outlets, params):
              l.price_per_litre, l.sales_value] for l in lines]
     totals = lines.aggregate(d=Sum("total_delivery"), t=Sum("testing_litres"), n=Sum("net_sales_litres"), v=Sum("sales_value"))
     return ReportTable(
-        title="Daily Sales: nozzle readings",
+        title="Shift cards: nozzle readings",
         subtitle=_period(params),
         columns=[Column("Date", DATE), Column("Shift"), Column("Outlet"), Column("Nozzle"), Column("Product"),
-                 Column("Opening (L)", LITRES), Column("Closing (L)", LITRES), Column("Total delivery (L)", LITRES),
-                 Column("Testing (L)", LITRES), Column("Net sales (L)", LITRES), Column("Price (₹/L)", MONEY),
-                 Column("Sales value (₹)", MONEY)],
+                 Column("Opening (L)", LITRES), Column("Closing (L)", LITRES), Column("Sale Ltr (L)", LITRES),
+                 Column("Testing (L)", LITRES), Column("Net sales (L)", LITRES), Column("Rate (₹/L)", MONEY),
+                 Column("Sale value (₹)", MONEY)],
         rows=rows,
         totals=["Total", "", "", "", "", "", "", totals["d"], totals["t"], totals["n"], "", totals["v"]],
-        notes=[TESTING_NOTE, _status_note(params)],
+        notes=[TESTING_NOTE],
     )
 
 
@@ -80,19 +70,19 @@ def stock_report(user, outlets, params):
                                       sheet__business_date__range=(params["date_from"], params["date_to"]))
              .select_related("sheet__outlet", "tank", "product")
              .order_by("sheet__business_date", "sheet__outlet__code", "tank__code"))
-    rows = [[l.sheet.business_date, l.sheet.outlet.code, l.tank.code, l.product.code, l.sheet.get_status_display(),
+    rows = [[l.sheet.business_date, l.sheet.outlet.code, l.tank.code, l.product.code,
              l.opening_stock, l.fuel_received, l.total_delivery, l.testing_litres, l.calculated_closing,
              l.measured_closing, l.variation, "Beyond limit" if l.is_flagged else ""] for l in lines]
     totals = lines.aggregate(r=Sum("fuel_received"), d=Sum("total_delivery"), t=Sum("testing_litres"), v=Sum("variation"))
     return ReportTable(
         title="Tank stock reconciliation",
         subtitle=_period(params),
-        columns=[Column("Date", DATE), Column("Outlet"), Column("Tank"), Column("Product"), Column("Status"),
+        columns=[Column("Date", DATE), Column("Outlet"), Column("Tank"), Column("Product"),
                  Column("Opening (L)", LITRES), Column("Received (L)", LITRES), Column("Total delivery (L)", LITRES),
                  Column("of which testing (L)", LITRES), Column("Calculated closing (L)", LITRES),
                  Column("Measured closing (L)", LITRES), Column("Variation (L)", LITRES), Column("Flag")],
         rows=rows,
-        totals=["Total", "", "", "", "", "", totals["r"], totals["d"], totals["t"], "", "", totals["v"], ""],
+        totals=["Total", "", "", "", "", totals["r"], totals["d"], totals["t"], "", "", totals["v"], ""],
         notes=["Calculated closing = opening + received − total nozzle delivery. Testing litres are part of the "
                "total delivery and are not subtracted again.",
                "Variation = measured − calculated. Observed litres, no temperature correction."],
@@ -125,27 +115,35 @@ def purchases_report(user, outlets, params):
     )
 
 
-def collections_report(user, outlets, params):
-    collections = (ShiftCollection.objects.filter(business=user.business, outlet__in=outlets,
-                                                  business_date__range=(params["date_from"], params["date_to"]))
-                   .select_related("outlet", "shift").order_by("business_date", "outlet__code", "shift__sort_order"))
-    rows, sums = [], {"payments": ZERO, "credit": ZERO}
-    for c in collections:
-        f = collection_figures(c)
-        rows.append([c.business_date, c.shift.name, c.outlet.code, c.get_status_display(), f["payments"], f["credit"],
-                     f["sales_value"], f["difference"]])
-        sums["payments"] += f["payments"]
-        sums["credit"] += f["credit"]
+CASH_KEYS = ("total_fuel", "lube", "customer_receipts", "credit", "general_credit", "bank_card", "company_card",
+             "phone_wallet", "expenses", "cash_collection", "balance")
+
+
+def shift_cash_report(user, outlets, params):
+    cards = (DailySalesSheet.objects.filter(business=user.business, outlet__in=outlets,
+                                            business_date__range=(params["date_from"], params["date_to"]))
+             .select_related("outlet", "shift", "dispenser", "employee")
+             .order_by("business_date", "outlet__code", "shift_sort_order", "pk"))
+    rows, sums = [], {key: ZERO for key in CASH_KEYS}
+    for card in cards:
+        f = card_figures(card)
+        rows.append([card.business_date, card.shift.name, card.outlet.code,
+                     card.dispenser.code if card.dispenser else "", str(card.employee or ""),
+                     *[f[key] for key in CASH_KEYS]])
+        for key in CASH_KEYS:
+            sums[key] += f[key]
     return ReportTable(
-        title="Shift collections",
+        title="Shift card cash summary",
         subtitle=_period(params),
-        columns=[Column("Date", DATE), Column("Shift"), Column("Outlet"), Column("Status"),
-                 Column("Money collected (₹)", MONEY), Column("Credit sales (₹)", MONEY),
-                 Column("Shift sales value (₹)", MONEY), Column("Short / excess (₹)", MONEY)],
+        columns=[Column("Date", DATE), Column("Shift"), Column("Outlet"), Column("MPD / DU"), Column("Employee"),
+                 Column("Total fuel (₹)", MONEY), Column("Lube (₹)", MONEY), Column("Cust. receipt (₹)", MONEY),
+                 Column("Credit (₹)", MONEY), Column("Gen. credit (₹)", MONEY), Column("Bank card (₹)", MONEY),
+                 Column("Company card (₹)", MONEY), Column("Phone wallet (₹)", MONEY), Column("Exp by DSM (₹)", MONEY),
+                 Column("Cash collected (₹)", MONEY), Column("Balance / short (₹)", MONEY)],
         rows=rows,
-        totals=["Total", "", "", "", sums["payments"], sums["credit"], "", ""],
-        notes=["Short / excess = money collected + credit sales − the shift's customer sales value. "
-               "Collections are not assumed to equal sales."],
+        totals=["Total", "", "", "", "", *[sums[key] for key in CASH_KEYS]],
+        notes=["Balance = cash collected − (total fuel + lube + customer receipts − credit − gen. credit − bank card "
+               "− company card − phone wallet − expenses by DSM). A negative balance is a shortage."],
     )
 
 
@@ -186,17 +184,17 @@ def credit_report(user, outlets, params):
 
 REPORTS = {
     "sales-summary": {"title": "Sales summary", "build": sales_summary_report, "dealer_only": False,
-                      "options": ("group_by", "product", "include_submitted"),
+                      "options": ("group_by", "product"),
                       "description": "Delivery, testing, net sales and value by day, month, outlet, product, nozzle or shift."},
-    "nozzle-readings": {"title": "Daily Sales nozzle readings", "build": nozzle_detail_report, "dealer_only": False,
-                        "options": ("product", "include_submitted"),
+    "nozzle-readings": {"title": "Shift card nozzle readings", "build": nozzle_detail_report, "dealer_only": False,
+                        "options": ("product",),
                         "description": "Every nozzle line with opening, closing, testing and value."},
     "tank-stock": {"title": "Tank stock reconciliation", "build": stock_report, "dealer_only": False, "options": (),
                    "description": "Opening, received, delivery, calculated and measured stock with variations."},
     "purchases": {"title": "Fuel purchases", "build": purchases_report, "dealer_only": False, "options": ("product",),
                   "description": "Invoices with invoiced and received quantities."},
-    "collections": {"title": "Shift collections", "build": collections_report, "dealer_only": False, "options": (),
-                    "description": "Money collected and credit given against each shift's sales value."},
+    "shift-cash": {"title": "Shift card cash summary", "build": shift_cash_report, "dealer_only": False, "options": (),
+                   "description": "Each card's fuel, lube, receipts, credit, cards, wallet, expenses, cash and short."},
     "expenses": {"title": "Expenses", "build": expenses_report, "dealer_only": False, "options": (),
                  "description": "Expenses by date, outlet and category."},
     "credit-outstanding": {"title": "Credit outstanding", "build": credit_report, "dealer_only": True, "options": (),

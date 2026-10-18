@@ -1,0 +1,8 @@
+{# A compact label-beside-input field for the Shift Card header. #}
+{% if field.widget_type == "checkbox" %}
+  <label class="sc-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+  <div class="sc-control">{{ field }}</div>
+{% else %}
+  <label class="sc-label" for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required and not field.field.disabled %} <span class="sc-required" aria-hidden="true">*</span>{% endif %}</label>
+  <div class="sc-control">{{ field }}{% include "partials/field_feedback.html" %}</div>
+{% endif %}

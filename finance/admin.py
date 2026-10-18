@@ -2,13 +2,7 @@ from django.contrib import admin
 
 from sales.admin import ReadOnlyAdmin
 
-from .models import CreditCustomer, CustomerPayment, Expense, ShiftCollection
-
-
-@admin.register(ShiftCollection)
-class ShiftCollectionAdmin(ReadOnlyAdmin):
-    list_display = ("business_date", "outlet", "shift", "status", "business")
-    list_filter = ("status", "business")
+from .models import CreditCustomer, CustomerPayment, Expense
 
 
 @admin.register(CreditCustomer)

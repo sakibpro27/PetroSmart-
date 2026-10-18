@@ -29,7 +29,6 @@ class ReportFilterForm(BootstrapFormMixin, forms.Form):
     outlet = forms.ModelChoiceField(queryset=None, required=False, empty_label="All outlets")
     group_by = forms.ChoiceField(choices=[(k, label) for k, (label, _) in GROUPINGS.items()], required=False, label="Group by")
     product = forms.ModelChoiceField(queryset=None, required=False, empty_label="All products")
-    include_submitted = forms.BooleanField(required=False, label="Include sheets awaiting approval")
 
     def __init__(self, *args, user, options, **kwargs):
         super().__init__(*args, **kwargs)
@@ -38,7 +37,7 @@ class ReportFilterForm(BootstrapFormMixin, forms.Form):
         self.fields["date_to"].initial = today
         self.fields["outlet"].queryset = viewable_outlets(user)
         self.fields["product"].queryset = FuelProduct.objects.for_business(user.business)
-        for name in ("group_by", "product", "include_submitted"):
+        for name in ("group_by", "product"):
             if name not in options:
                 del self.fields[name]
 

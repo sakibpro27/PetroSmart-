@@ -84,6 +84,9 @@ class StockMovement(TenantOwnedModel):
     notes = models.CharField(max_length=255, blank=True)
     entered_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
+    # Set when the item was sold at the pump and recorded on a Shift Card (Lube/Oil Sale).
+    sales_sheet = models.ForeignKey("sales.DailySalesSheet", on_delete=models.PROTECT, null=True, blank=True,
+                                    related_name="lube_sales", verbose_name="shift card")
 
     class Meta:
         ordering = ["-moved_on", "-pk"]

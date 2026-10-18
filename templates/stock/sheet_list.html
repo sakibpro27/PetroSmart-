@@ -30,7 +30,7 @@
     <div class="table-responsive">
       <table class="table table-hover align-middle">
         <thead>
-          <tr><th scope="col">Date</th><th scope="col">Outlet</th><th scope="col">Status</th><th scope="col" class="num">Tanks</th>
+          <tr><th scope="col">Date</th><th scope="col">Outlet</th><th scope="col" class="num">Tanks</th>
               <th scope="col" class="num">Received (L)</th><th scope="col" class="num">Total delivery (L)</th><th scope="col" class="num">Net variation (L)</th></tr>
         </thead>
         <tbody>
@@ -38,7 +38,6 @@
             <tr>
               <td class="text-nowrap"><a href="{{ sheet.get_absolute_url }}">{{ sheet.business_date|date:"d M Y" }}</a></td>
               <td>{{ sheet.outlet.code }}</td>
-              <td>{% include "sales/partials/status.html" with status=sheet.status label=sheet.get_status_display %}</td>
               <td class="num">{{ sheet.tank_count }}</td>
               <td class="num">{{ sheet.received|qty }}</td>
               <td class="num">{{ sheet.delivery|qty }}</td>
