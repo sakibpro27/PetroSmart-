@@ -76,6 +76,42 @@ def movements(tank, day):
     }
 
 
+def book_stock(tank):
+    """
+    The tank's stock right now, from the records:
+
+        Book stock = last measured (dip) stock, or the tank's starting stock
+                     + fuel received since then
+                     - total nozzle delivery on shift cards since then
+
+    Total delivery includes testing litres, because that fuel left the tank.
+    It changes as soon as a shift card or a fuel receipt is saved.
+    """
+    last = (StockLine.objects.filter(tank=tank, measured_closing__isnull=False)
+            .select_related("sheet").order_by("-sheet__business_date").first())
+    base = last.measured_closing if last else tank.starting_stock
+    receipts = TankReceipt.objects.filter(tank=tank)
+    lines = DailySalesLine.objects.filter(closing_reading__isnull=False).filter(
+        Q(tank=tank) | Q(tank__isnull=True, nozzle__tank=tank))
+    if last is not None:
+        receipts = receipts.filter(received_on__gt=last.sheet.business_date)
+        lines = lines.filter(sheet__business_date__gt=last.sheet.business_date)
+    received = receipts.aggregate(total=Sum("litres"))["total"] or ZERO
+    delivered = lines.aggregate(delivery=Sum("total_delivery"), testing=Sum("testing_litres"))
+    sold = delivered["delivery"] or ZERO
+    stock = base + received - sold
+    return {
+        "tank": tank, "stock": stock, "base": base, "base_date": last.sheet.business_date if last else None,
+        "received": received, "delivered": sold, "testing": delivered["testing"] or ZERO,
+        "percent": max(0, min(100, int(stock * 100 / tank.capacity_litres))) if tank.capacity_litres else None,
+    }
+
+
+def book_stock_for(outlets):
+    tanks = Tank.objects.filter(outlet__in=outlets, is_active=True).select_related("outlet", "product")
+    return [book_stock(tank) for tank in tanks.order_by("outlet__code", "code")]
+
+
 def day_problems(outlet, day):
     """Reasons the outlet's stock for `day` cannot be saved yet."""
     unlinked = (

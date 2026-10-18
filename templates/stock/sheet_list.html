@@ -25,6 +25,34 @@
   </div>
 </form>
 
+{% if book %}
+  <div class="card table-card mb-4">
+    <div class="card-header">Stock now <span class="small text-muted fw-normal">(updates as soon as a shift card or fuel receipt is saved)</span></div>
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead>
+          <tr><th scope="col">Tank</th><th scope="col" class="num">Starting point (L)</th><th scope="col" class="num">+ Received (L)</th>
+              <th scope="col" class="num">− Sold incl. testing (L)</th><th scope="col" class="num">= Stock now (L)</th><th scope="col" style="min-width: 9rem">Fill</th></tr>
+        </thead>
+        <tbody>
+          {% for row in book %}
+            <tr>
+              <th scope="row" class="fw-normal">{{ row.tank.outlet.code }} · <span class="fw-semibold">{{ row.tank.code }}</span> <span class="fuel-tag fuel-{{ row.tank.product.category|lower }} ms-1">{{ row.tank.product.code }}</span></th>
+              <td class="num">{{ row.base|qty }}<div class="small text-muted">{% if row.base_date %}dip on {{ row.base_date|date:"d M Y" }}{% else %}starting stock{% endif %}</div></td>
+              <td class="num">{{ row.received|qty }}</td>
+              <td class="num">{{ row.delivered|qty }}{% if row.testing %}<div class="small text-muted">of which testing {{ row.testing|qty }}</div>{% endif %}</td>
+              <td class="num fw-semibold">{{ row.stock|qty }}</td>
+              <td>{% if row.percent is not None %}<div class="meter" role="meter" aria-valuenow="{{ row.percent }}" aria-valuemin="0" aria-valuemax="100" aria-label="{{ row.tank.code }} {{ row.percent }}% full"><span class="meter-fill fuel-bg-{{ row.tank.product.category|lower }}" style="width: {{ row.percent }}%"></span></div><span class="small text-muted">{{ row.percent }}% of {{ row.tank.capacity_litres|qty }} L</span>{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="card-footer small text-muted">Stock now = last dip reading (or starting stock) + fuel received since − litres sold on shift cards since. Save a daily stock sheet to compare it with the real dip.</div>
+  </div>
+{% endif %}
+
+<h2 class="h5 mb-2">Daily stock sheets</h2>
 <div class="card table-card">
   {% if sheets %}
     <div class="table-responsive">

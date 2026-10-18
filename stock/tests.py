@@ -141,6 +141,55 @@ class StockSheetTests(StockTestCase):
         self.assertEqual(StockSheet.objects.count(), 1)
 
 
+class BookStockTests(StockTestCase):
+    """Litres sold on shift cards come off the tank's stock straight away."""
+
+    def test_sale_reduces_stock_immediately_including_testing(self):
+        self.assertEqual(services.book_stock(self.t1)["stock"], D("1000"))
+        self.card()  # N1: 20 L delivered (2 L testing) from T1; N2: 100 L from T2
+        t1 = services.book_stock(self.t1)
+        self.assertEqual((t1["stock"], t1["delivered"], t1["testing"]), (D("980"), D("20"), D("2")))
+        self.assertEqual(services.book_stock(self.t2)["stock"], D("4900"))
+
+    def test_receipts_add_and_each_card_counts(self):
+        self.card()
+        self.receive(self.t2, "4000")
+        self.card(self.evening, readings={"N1": ("500", "0"), "N2": ("1150", "0")})
+        self.assertEqual(services.book_stock(self.t1)["stock"], D("960"))
+        self.assertEqual(services.book_stock(self.t2)["stock"], D("8850"))  # 5000 + 4000 - 150
+
+    def test_dip_becomes_the_new_starting_point(self):
+        self.card()
+        self.save_stock({self.t1: "975", self.t2: "4900"}, notes={self.t1: ""})  # 5 L less than the books
+        self.assertEqual(services.book_stock(self.t1)["stock"], D("975"))
+        tomorrow_sale = services.book_stock(self.t1)
+        self.assertEqual((tomorrow_sale["base_date"], tomorrow_sale["delivered"]), (TODAY, D("0")))
+
+    def test_editing_or_deleting_a_card_updates_stock(self):
+        card = self.card()
+        sales_services.save_card(user=self.manager, sheet=card, header={"employee": self.ravi}, rows=[
+            {"nozzle": self.n1, "closing_reading": D("490"), "testing_litres": D("2")},
+            {"nozzle": self.n2, "closing_reading": D("1100"), "testing_litres": D("0")}])
+        self.assertEqual(services.book_stock(self.t1)["stock"], D("970"))
+        sales_services.delete_card(card, user=self.manager)
+        self.assertEqual(services.book_stock(self.t1)["stock"], D("1000"))
+
+    def test_shown_on_pages(self):
+        self.card()
+        self.client.force_login(self.dealer)
+        self.assertEqual(self.client.get(reverse("core:home")).context["dash"]["tanks"][0]["stock"], D("980"))
+        self.assertContains(self.client.get(reverse("stock:sheet_list")), "Stock now")
+        self.assertContains(self.client.get(reverse("station:outlet_detail", args=[self.outlet.pk])), "980.00")
+
+    def test_card_save_message_shows_stock(self):
+        self.client.force_login(self.manager)
+        from sales.tests import CardScreenTests
+        response = CardScreenTests.post_card(self)  # reuses the shift card form data helper
+        self.assertEqual(response.status_code, 302)
+        messages = [str(m) for m in self.client.get(response.url).context["messages"]]
+        self.assertTrue(any("T1 980.00 L" in m for m in messages), messages)
+
+
 class LockingTests(StockTestCase):
     def test_receipts_locked_after_stock_saved(self):
         receipt = self.receive(self.t1, "100")

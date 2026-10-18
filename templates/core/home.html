@@ -106,18 +106,18 @@
 <div class="row g-4 mb-4">
   <div class="col-xl-6">
     <div class="card table-card h-100">
-      <div class="card-header">Fuel stock by tank <span class="small text-muted fw-normal">(latest dip)</span></div>
+      <div class="card-header d-flex justify-content-between"><span>Fuel stock by tank <span class="small text-muted fw-normal">(now, from the records)</span></span><a class="small fw-normal" href="{% url 'stock:sheet_list' %}">Tank stock</a></div>
       {% if dash.tanks %}
         <div class="table-responsive">
           <table class="table align-middle">
-            <thead><tr><th scope="col">Tank</th><th scope="col" class="num">Stock (L)</th><th scope="col" style="min-width: 9rem">Fill</th><th scope="col">As of</th></tr></thead>
+            <thead><tr><th scope="col">Tank</th><th scope="col" class="num">Stock now (L)</th><th scope="col" style="min-width: 9rem">Fill</th><th scope="col" class="num">Sold since dip (L)</th></tr></thead>
             <tbody>
               {% for row in dash.tanks %}
                 <tr>
                   <td>{{ row.tank.outlet.code }} · <span class="fw-medium">{{ row.tank.code }}</span> <span class="fuel-tag fuel-{{ row.tank.product.category|lower }} ms-1">{{ row.tank.product.code }}</span></td>
-                  <td class="num">{{ row.measured|qty }}</td>
-                  <td>{% if row.percent is not None %}<div class="meter" role="meter" aria-valuenow="{{ row.percent }}" aria-valuemin="0" aria-valuemax="100" aria-label="{{ row.tank.code }} {{ row.percent }}% full"><span class="meter-fill fuel-bg-{{ row.tank.product.category|lower }}" style="width: {{ row.percent }}%"></span></div><span class="small text-muted">{{ row.percent }}% of {{ row.tank.capacity_litres|qty }} L</span>{% else %}<span class="small text-muted">No dip yet</span>{% endif %}</td>
-                  <td class="small text-nowrap">{{ row.as_of|date:"d M"|default:"—" }}</td>
+                  <td class="num fw-semibold">{{ row.stock|qty }}</td>
+                  <td>{% if row.percent is not None %}<div class="meter" role="meter" aria-valuenow="{{ row.percent }}" aria-valuemin="0" aria-valuemax="100" aria-label="{{ row.tank.code }} {{ row.percent }}% full"><span class="meter-fill fuel-bg-{{ row.tank.product.category|lower }}" style="width: {{ row.percent }}%"></span></div><span class="small text-muted">{{ row.percent }}% of {{ row.tank.capacity_litres|qty }} L</span>{% endif %}</td>
+                  <td class="num small">{{ row.delivered|qty }}<div class="text-muted">{% if row.base_date %}since dip {{ row.base_date|date:"d M" }}{% else %}since start{% endif %}</div></td>
                 </tr>
               {% endfor %}
             </tbody>

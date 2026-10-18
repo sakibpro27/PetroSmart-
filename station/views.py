@@ -61,6 +61,16 @@ class OutletDetailView(DealerRequiredMixin, DetailView):
     def get_queryset(self):
         return Outlet.objects.for_business(self.request.business)
 
+    @staticmethod
+    def _tanks_with_stock(business, outlet):
+        from stock.services import book_stock  # the stock app builds on station
+
+        tanks = list(Tank.objects.for_business(business).filter(outlet=outlet).select_related("product")
+                     .annotate(nozzle_count=Count("nozzles", filter=Q(nozzles__is_active=True))))
+        for tank in tanks:
+            tank.stock_now = book_stock(tank)["stock"]
+        return tanks
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         outlet, business = self.object, self.request.business
@@ -82,8 +92,7 @@ class OutletDetailView(DealerRequiredMixin, DetailView):
             price_history=FuelPrice.objects.filter(outlet=outlet).select_related("product")[:10],
             dispensers=Dispenser.objects.for_business(business).filter(outlet=outlet),
             nozzles=Nozzle.objects.for_business(business).filter(outlet=outlet).select_related("dispenser", "product", "tank"),
-            tanks=Tank.objects.for_business(business).filter(outlet=outlet).select_related("product")
-            .annotate(nozzle_count=Count("nozzles", filter=Q(nozzles__is_active=True))),
+            tanks=self._tanks_with_stock(business, outlet),
             shifts=Shift.objects.for_business(business).filter(outlet=outlet),
         )
         return context

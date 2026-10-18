@@ -219,6 +219,12 @@ class CardFormView(BusinessMemberRequiredMixin, View):
         for warning in warnings:
             messages.warning(request, warning)
         messages.success(request, f"Shift card saved: {sheet}.")
+        from stock.services import book_stock  # stock builds on sales
+
+        tanks = {line.tank or line.nozzle.tank for line in sheet.lines.select_related("tank", "nozzle__tank")} - {None}
+        if tanks:
+            messages.info(request, "Stock now: " + ", ".join(
+                f"{tank.code} {book_stock(tank)['stock']:,.2f} L" for tank in sorted(tanks, key=lambda t: t.code)))
         url = sheet.get_absolute_url()
         return redirect(f"{url}?print=1" if request.POST.get("action") == "print" else url)
 

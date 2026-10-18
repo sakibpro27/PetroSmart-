@@ -13,8 +13,9 @@ from finance.services import outstanding_total
 from purchases.models import FuelPurchase
 from sales.models import DailySalesLine, DailySalesSheet
 from sales.services import card_figures
-from station.models import FuelProduct, Tank
+from station.models import FuelProduct
 from stock.models import StockLine
+from stock.services import book_stock_for
 
 ZERO = Decimal("0")
 CHART_DAYS = 14
@@ -61,18 +62,8 @@ def daily_chart(business, outlets, day):
 
 
 def tank_stock(business, outlets):
-    """Each active tank's latest measured (dip) stock."""
-    tanks = Tank.objects.filter(business=business, outlet__in=outlets, is_active=True).select_related("outlet", "product")
-    result = []
-    for tank in tanks:
-        line = (StockLine.objects.filter(tank=tank, measured_closing__isnull=False)
-                .select_related("sheet").order_by("-sheet__business_date").first())
-        measured = line.measured_closing if line else None
-        result.append({
-            "tank": tank, "measured": measured, "as_of": line.sheet.business_date if line else None,
-            "percent": int(measured * 100 / tank.capacity_litres) if measured is not None else None,
-        })
-    return result
+    """Each active tank's book stock now: last dip + received - sold on shift cards since."""
+    return book_stock_for(outlets.filter(business=business))
 
 
 def money(cards):

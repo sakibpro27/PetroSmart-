@@ -118,13 +118,14 @@
       {% if tanks %}
         <div class="table-responsive">
           <table class="table table-hover align-middle">
-            <thead><tr><th scope="col">Tank</th><th scope="col">Product</th><th scope="col" class="num">Capacity (L)</th><th scope="col" class="num">Nozzles</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+            <thead><tr><th scope="col">Tank</th><th scope="col">Product</th><th scope="col" class="num">Capacity (L)</th><th scope="col" class="num">Stock now (L)</th><th scope="col" class="num">Nozzles</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
             <tbody>
               {% for tank in tanks %}
                 <tr>
                   <td class="fw-medium">{{ tank.code }}</td>
                   <td><span class="fuel-tag fuel-{{ tank.product.category|lower }}">{{ tank.product.code }}</span></td>
                   <td class="num">{{ tank.capacity_litres }}</td>
+                  <td class="num fw-semibold">{{ tank.stock_now }}</td>
                   <td class="num">{{ tank.nozzle_count }}</td>
                   <td>{% include "partials/active_status.html" with active=tank.is_active %}</td>
                   <td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{% url 'station:tank_edit' tank.pk %}">Edit</a></td>

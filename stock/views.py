@@ -46,8 +46,12 @@ class StockSheetListView(BusinessMemberRequiredMixin, ListView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["outlets"] = viewable_outlets(self.request.user)
+        outlets = viewable_outlets(self.request.user)
+        context["outlets"] = outlets
         context["selected_outlet"] = self.request.GET.get("outlet", "")
+        if context["selected_outlet"].isdigit():
+            outlets = outlets.filter(pk=context["selected_outlet"])
+        context["book"] = services.book_stock_for(outlets)
         return context
 
 
