@@ -10,7 +10,7 @@ from django.db.models import Sum
 
 from finance.models import CreditCustomer
 from finance.services import expenses_for
-from purchases.services import purchases_for
+from purchases.services import product_comparison, purchases_for
 from sales.models import DailySalesSheet
 from sales.reports import GROUPINGS, sales_summary, summary_lines
 from sales.services import card_figures
@@ -92,16 +92,22 @@ def stock_report(user, outlets, params):
 def purchases_report(user, outlets, params):
     purchases = (purchases_for(user).filter(outlet__in=outlets,
                                             delivery_date__range=(params["date_from"], params["date_to"]))
-                 .select_related("outlet", "supplier", "product").annotate(received=Sum("receipts__litres"))
-                 .order_by("delivery_date", "pk"))
-    if params.get("product"):
-        purchases = purchases.filter(product=params["product"])
+                 .select_related("outlet", "supplier").order_by("delivery_date", "pk"))
+    product = params.get("product")
     rows, invoiced, received, amount = [], ZERO, ZERO, ZERO
+    # One row per product on each invoice; the invoice amount is shown once, on its first row.
     for p in purchases:
-        got = p.received or ZERO
-        rows.append([p.delivery_date, p.invoice_number, p.supplier.name, p.outlet.code, p.product.code,
-                     p.invoiced_litres, got, got - p.invoiced_litres, p.purchase_rate, p.invoice_amount])
-        invoiced, received, amount = invoiced + p.invoiced_litres, received + got, amount + p.invoice_amount
+        for index, row in enumerate(product_comparison(p)):
+            line = row["line"]
+            if product and line.product_id != product.pk:
+                continue
+            first = index == 0
+            rows.append([p.delivery_date, p.invoice_number, p.supplier.name, p.outlet.code, line.product.code,
+                         line.invoiced_litres, row["received"], row["difference"], line.purchase_rate,
+                         p.invoice_amount if first and not product else ""])
+            invoiced, received = invoiced + line.invoiced_litres, received + row["received"]
+            if first and not product:
+                amount += p.invoice_amount
     return ReportTable(
         title="Fuel purchases and deliveries",
         subtitle=_period(params),
@@ -109,9 +115,10 @@ def purchases_report(user, outlets, params):
                  Column("Invoiced (L)", LITRES), Column("Received (L)", LITRES), Column("Difference (L)", LITRES),
                  Column("Rate (₹/L)", MONEY), Column("Invoice amount (₹)", MONEY)],
         rows=rows,
-        totals=["Total", "", "", "", "", invoiced, received, received - invoiced, "", amount],
-        notes=["Difference = litres received into the tanks − invoiced quantity. Invoice amounts are as printed; "
-               "PetroSmart does not calculate taxes."],
+        totals=["Total", "", "", "", "", invoiced, received, received - invoiced, "", amount if not product else ""],
+        notes=["One row per product on each invoice. Difference = litres received into that product's tanks − "
+               "invoiced quantity. Invoice amounts are as printed (shown once per invoice); PetroSmart does not "
+               "calculate taxes."],
     )
 
 

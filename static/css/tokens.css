@@ -18,7 +18,7 @@
   --ps-text: #292D2B;           /* charcoal */
   --ps-text-muted: #626760;     /* grey-green */
   --ps-text-on-dark: #F7F5EF;
-  --ps-text-on-dark-muted: #B9C7BF;
+  --ps-text-on-dark-muted: #DCE7E0;   /* brighter: sidebar menu text must be easy to read */
 
   /* --- Lines --- */
   --ps-border: #E6E1D7;

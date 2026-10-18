@@ -7,7 +7,7 @@
 <div class="page-header">
   <div>
     <h1>Invoice {{ purchase.invoice_number }}</h1>
-    <p class="subtitle">{{ purchase.supplier.name }} · {{ purchase.product.name }} · {{ purchase.outlet.name }} ({{ purchase.outlet.code }})</p>
+    <p class="subtitle">{{ purchase.supplier.name }} · {{ purchase.product_codes }} · {{ purchase.outlet.name }} ({{ purchase.outlet.code }})</p>
   </div>
   {% if can_change and not locked %}
     <div class="d-flex gap-2">
@@ -18,12 +18,12 @@
       </form>
     </div>
   {% elif locked %}
-    <span class="status status-neutral"><i class="bi bi-lock" aria-hidden="true"></i> Locked: tank stock for {{ purchase.delivery_date|date:"d M Y" }} is submitted</span>
+    <span class="status status-neutral"><i class="bi bi-lock" aria-hidden="true"></i> Locked: tank stock for {{ purchase.delivery_date|date:"d M Y" }} is saved</span>
   {% endif %}
 </div>
 
 <div class="row g-3 mb-4">
-  <div class="col-6 col-xl-3"><div class="stat"><div class="stat-label">Invoiced quantity</div><div class="stat-value">{{ purchase.invoiced_litres|qty }} L</div></div></div>
+  <div class="col-6 col-xl-3"><div class="stat"><div class="stat-label">Invoiced quantity</div><div class="stat-value">{{ invoiced|qty }} L</div></div></div>
   <div class="col-6 col-xl-3"><div class="stat"><div class="stat-label">Received into tanks</div><div class="stat-value">{{ received|qty }} L</div></div></div>
   <div class="col-6 col-xl-3">
     <div class="stat">
@@ -35,6 +35,27 @@
   <div class="col-6 col-xl-3"><div class="stat"><div class="stat-label">Invoice amount</div><div class="stat-value">{{ purchase.invoice_amount|inr }}</div></div></div>
 </div>
 
+<div class="card table-card mb-4">
+  <div class="card-header">Products on this invoice</div>
+  <div class="table-responsive">
+    <table class="table align-middle">
+      <thead><tr><th scope="col">Product</th><th scope="col" class="num">Invoiced (L)</th><th scope="col" class="num">Rate (₹/L)</th><th scope="col" class="num">Litres × rate</th><th scope="col" class="num">Received into tanks (L)</th><th scope="col" class="num">Difference (L)</th></tr></thead>
+      <tbody>
+        {% for row in products %}
+          <tr>
+            <td><span class="fuel-tag fuel-{{ row.line.product.category|lower }}">{{ row.line.product.code }}</span> {{ row.line.product.name }}</td>
+            <td class="num">{{ row.line.invoiced_litres|qty }}</td>
+            <td class="num">{{ row.line.purchase_rate }}</td>
+            <td class="num">{{ row.line.base_amount|inr }}</td>
+            <td class="num">{{ row.received|qty }}</td>
+            <td class="num">{% if row.difference < 0 %}<span class="status status-danger">Short {{ row.difference|qty }}</span>{% elif row.difference > 0 %}<span class="status status-warning">Excess {{ row.difference|qty }}</span>{% else %}0.00{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
 <div class="row g-4">
   <div class="col-lg-6">
     <div class="card mb-4">
@@ -43,7 +64,6 @@
         <dl class="detail-list">
           <dt>Invoice date</dt><dd>{{ purchase.invoice_date|date:"d M Y" }}</dd>
           <dt>Delivered on</dt><dd>{{ purchase.delivery_date|date:"d M Y" }}</dd>
-          <dt>Rate</dt><dd>₹{{ purchase.purchase_rate }} per litre</dd>
           <dt>Litres × rate</dt><dd>{{ purchase.base_amount|inr }}</dd>
           <dt>Other charges / taxes</dt><dd>{{ purchase.other_charges|inr }} <span class="small text-muted">(invoice amount − litres × rate, for information)</span></dd>
           <dt>Tanker</dt><dd>{{ purchase.tanker_number|default:"—" }}</dd>

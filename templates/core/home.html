@@ -139,8 +139,8 @@
                 <tr>
                   <td class="text-nowrap">{{ purchase.delivery_date|date:"d M" }}</td>
                   <td><a href="{{ purchase.get_absolute_url }}">{{ purchase.invoice_number }}</a><div class="small text-muted">{{ purchase.supplier.name }} · {{ purchase.outlet.code }}</div></td>
-                  <td><span class="fuel-tag fuel-{{ purchase.product.category|lower }}">{{ purchase.product.code }}</span></td>
-                  <td class="num">{{ purchase.invoiced_litres|qty }} L</td>
+                  <td>{% for line in purchase.lines.all %}<span class="fuel-tag fuel-{{ line.product.category|lower }} me-1">{{ line.product.code }}</span>{% endfor %}</td>
+                  <td class="num">{{ purchase.total_invoiced_litres|qty }} L</td>
                 </tr>
               {% endfor %}
             </tbody>

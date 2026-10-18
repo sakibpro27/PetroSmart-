@@ -29,6 +29,23 @@
   </div>
 
   <div class="card form-card mb-3">
+    <div class="card-header">Products on this invoice</div>
+    <div class="card-body">
+      {{ lines.management_form }}
+      {% if lines.non_form_errors %}<div class="errorlist mb-2">{{ lines.non_form_errors|join:" " }}</div>{% endif %}
+      <p class="small text-muted">One row per product (MS and HSD can be on the same invoice). Leave quantity and rate empty for a product that was not delivered.</p>
+      {% for line in lines %}
+        {% for error in line.non_field_errors %}<div class="errorlist"><i class="bi bi-exclamation-circle" aria-hidden="true"></i> {{ error }}</div>{% endfor %}
+        <div class="row gx-3">
+          <div class="col-md-4">{% include "partials/form_field.html" with field=line.product %}</div>
+          <div class="col-md-4">{% include "partials/form_field.html" with field=line.invoiced_litres %}</div>
+          <div class="col-md-4">{% include "partials/form_field.html" with field=line.purchase_rate %}</div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="card form-card mb-3">
     <div class="card-header">Litres received into tanks</div>
     <div class="card-body">
       {{ formset.management_form }}

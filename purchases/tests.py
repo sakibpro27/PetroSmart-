@@ -21,10 +21,13 @@ class PurchaseTestCase(StockTestCase):
 
     def purchase_data(self, **overrides):
         data = {
-            "purchase-outlet": self.outlet.pk, "purchase-supplier": self.supplier.pk, "purchase-product": self.hsd.pk,
+            "purchase-outlet": self.outlet.pk, "purchase-supplier": self.supplier.pk,
             "purchase-invoice_number": "INV-1001", "purchase-invoice_date": TODAY, "purchase-delivery_date": TODAY,
-            "purchase-invoiced_litres": "12000", "purchase-purchase_rate": "88.1234", "purchase-invoice_amount": "1104000.00",
-            "purchase-tanker_number": "MH12AB1234", "purchase-notes": "",
+            "purchase-invoice_amount": "1104000.00", "purchase-tanker_number": "MH12AB1234", "purchase-notes": "",
+            # Product rows: MS row left empty (not delivered), HSD 12,000 L.
+            "lines-TOTAL_FORMS": 2, "lines-INITIAL_FORMS": 0, "lines-MIN_NUM_FORMS": 2, "lines-MAX_NUM_FORMS": 10,
+            "lines-0-product": self.ms.pk, "lines-0-invoiced_litres": "", "lines-0-purchase_rate": "",
+            "lines-1-product": self.hsd.pk, "lines-1-invoiced_litres": "12000", "lines-1-purchase_rate": "88.1234",
             "tanks-TOTAL_FORMS": 2, "tanks-INITIAL_FORMS": 0, "tanks-MIN_NUM_FORMS": 0, "tanks-MAX_NUM_FORMS": 10,
             "tanks-0-tank": self.t2.pk, "tanks-0-litres": "11980", "tanks-1-tank": "", "tanks-1-litres": "",
         }
@@ -59,6 +62,38 @@ class PurchaseFlowTests(PurchaseTestCase):
         self.assertEqual(purchase.base_amount, D("1057480.80"))
         self.assertEqual(purchase.other_charges, D("46519.20"))
 
+    def test_ms_and_hsd_on_the_same_invoice(self):
+        response = self.post(self.purchase_data(**{
+            "lines-0-invoiced_litres": "4000", "lines-0-purchase_rate": "94.5000",
+            "tanks-0-tank": self.t1.pk, "tanks-0-litres": "3990", "tanks-1-tank": self.t2.pk, "tanks-1-litres": "12000",
+        }))
+        purchase = FuelPurchase.objects.get()
+        self.assertRedirects(response, purchase.get_absolute_url())
+        self.assertEqual(purchase.product_codes, "MS, HSD")
+        self.assertEqual(purchase.total_invoiced_litres, D("16000"))
+        self.assertEqual(purchase.base_amount, D("378000.00") + D("1057480.80"))  # 4000×94.5 + 12000×88.1234
+        page = self.client.get(purchase.get_absolute_url())
+        by_code = {row["line"].product.code: row for row in page.context["products"]}
+        self.assertEqual((by_code["MS"]["received"], by_code["MS"]["difference"]), (D("3990"), D("-10")))
+        self.assertEqual((by_code["HSD"]["received"], by_code["HSD"]["difference"]), (D("12000"), D("0")))
+        # Both tanks get the fuel straight away.
+        self.assertEqual(stock_services.book_stock(self.t1)["stock"], D("4990"))
+        self.assertEqual(stock_services.book_stock(self.t2)["stock"], D("17000"))
+
+    def test_each_invoiced_product_must_reach_a_tank(self):
+        response = self.post(self.purchase_data(**{"lines-0-invoiced_litres": "4000", "lines-0-purchase_rate": "94.5"}))
+        self.assertContains(response, "Allocate the received litres of Petrol (MS)")
+        self.assertFalse(FuelPurchase.objects.exists())
+
+    def test_incomplete_product_row_rejected(self):
+        response = self.post(self.purchase_data(**{"lines-0-invoiced_litres": "4000"}))
+        self.assertContains(response, "Fill in the product, quantity and rate")
+
+    def test_new_invoice_page_offers_ms_and_hsd_rows(self):
+        page = self.client.get(reverse("purchases:purchase_create"))
+        products = [form.initial.get("product") for form in page.context["lines"].forms]
+        self.assertEqual(products, [self.ms, self.hsd])
+
     def test_split_delivery_across_tanks(self):
         second = self.t2.__class__.objects.create(business=self.business, outlet=self.outlet, product=self.hsd, code="T4",
                                                   capacity_litres=D("10000"), starting_stock=D("0"))
@@ -67,7 +102,7 @@ class PurchaseFlowTests(PurchaseTestCase):
 
     def test_tank_must_hold_the_invoiced_product(self):
         response = self.post(self.purchase_data(**{"tanks-0-tank": self.t1.pk}))  # T1 holds MS
-        self.assertContains(response, "holds Petrol (MS), not Diesel (HSD)")
+        self.assertContains(response, "holds Petrol (MS), which is not on this invoice")
         self.assertFalse(FuelPurchase.objects.exists())
 
     def test_at_least_one_tank_and_complete_rows(self):

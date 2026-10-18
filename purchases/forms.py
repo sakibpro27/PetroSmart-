@@ -22,10 +22,9 @@ class SupplierForm(TenantModelForm):
 class PurchaseForm(AuditedModelForm):
     class Meta:
         model = FuelPurchase
-        fields = ["outlet", "supplier", "product", "invoice_number", "invoice_date", "delivery_date",
-                  "invoiced_litres", "purchase_rate", "invoice_amount", "tanker_number", "notes"]
-        labels = {"invoiced_litres": "Invoiced quantity (L)", "purchase_rate": "Rate (₹ per litre)",
-                  "invoice_amount": "Invoice amount (₹)"}
+        fields = ["outlet", "supplier", "invoice_number", "invoice_date", "delivery_date",
+                  "invoice_amount", "tanker_number", "notes"]
+        labels = {"invoice_amount": "Invoice amount (₹)"}
         widgets = {"invoice_date": DATE_INPUT, "delivery_date": DATE_INPUT, "notes": forms.Textarea(attrs={"rows": 2})}
 
     def __init__(self, *args, user, **kwargs):
@@ -36,13 +35,10 @@ class PurchaseForm(AuditedModelForm):
         self.fields["outlet"].queryset = user.accessible_outlets()
         current_supplier = Q(pk=self.instance.supplier_id) if self.instance.supplier_id else Q(pk__in=[])
         self.fields["supplier"].queryset = Supplier.objects.for_business(user.business).filter(Q(is_active=True) | current_supplier)
-        self.fields["product"].queryset = FuelProduct.objects.for_business(user.business).filter(is_active=True)
         for name in ("invoice_date", "delivery_date"):
             self.fields[name].initial = today
             self.fields[name].widget.attrs["max"] = today.isoformat()
-        for name in ("invoiced_litres", "purchase_rate", "invoice_amount"):
-            self.fields[name].widget.attrs.update({**DECIMAL_INPUT})
-        self.fields["purchase_rate"].widget.attrs["step"] = "0.0001"
+        self.fields["invoice_amount"].widget.attrs.update({**DECIMAL_INPUT})
 
     def _get_validation_exclusions(self):
         # Check "invoice number unique per supplier" with a friendly message.
@@ -55,6 +51,36 @@ class PurchaseForm(AuditedModelForm):
         if cleaned.get("invoice_date") and cleaned.get("delivery_date") and cleaned["delivery_date"] < cleaned["invoice_date"]:
             self.add_error("delivery_date", "Delivery cannot be before the invoice date.")
         return cleaned
+
+
+class ProductLineForm(BootstrapFormMixin, forms.Form):
+    """One product on the invoice. Leave a row empty if that product is not on this invoice."""
+
+    product = forms.ModelChoiceField(queryset=FuelProduct.objects.none(), required=False)
+    invoiced_litres = forms.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"), required=False,
+                                         label="Invoiced quantity (L)")
+    purchase_rate = forms.DecimalField(max_digits=9, decimal_places=4, min_value=Decimal("0.0001"), required=False,
+                                       label="Rate (₹ per litre)")
+
+    def __init__(self, *args, user, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["product"].queryset = FuelProduct.objects.for_business(user.business).filter(is_active=True)
+        self.fields["invoiced_litres"].widget.attrs.update({**DECIMAL_INPUT, "min": "0.01"})
+        self.fields["purchase_rate"].widget.attrs.update({**DECIMAL_INPUT, "step": "0.0001"})
+
+    def clean(self):
+        cleaned = super().clean()
+        if not cleaned.get("invoiced_litres") and not cleaned.get("purchase_rate"):
+            # Quantity and rate left blank: this product is not on the invoice.
+            cleaned["product"] = None
+            return cleaned
+        if not all(cleaned.get(name) for name in ("product", "invoiced_litres", "purchase_rate")):
+            raise forms.ValidationError("Fill in the product, quantity and rate, or leave quantity and rate empty.")
+        return cleaned
+
+
+# Two rows by default so MS and HSD on the same invoice can be entered together.
+ProductLineFormSet = forms.formset_factory(ProductLineForm, extra=0, min_num=2, max_num=10, validate_max=True)
 
 
 class AllocationForm(BootstrapFormMixin, forms.Form):

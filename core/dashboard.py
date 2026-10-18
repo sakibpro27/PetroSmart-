@@ -116,7 +116,7 @@ def build(user, outlets, day):
         "chart": daily_chart(business, outlets, day),
         "tanks": tank_stock(business, outlets),
         "deliveries": FuelPurchase.objects.filter(business=business, outlet__in=outlets)
-        .select_related("supplier", "product", "outlet").order_by("-delivery_date", "-pk")[:5],
+        .select_related("supplier", "outlet").prefetch_related("lines__product").order_by("-delivery_date", "-pk")[:5],
         "payments": money(cards),
         "month_expenses": _sum(Expense.objects.filter(business=business, outlet__in=outlets,
                                                       expense_date__range=(month_start, day)), "amount"),
