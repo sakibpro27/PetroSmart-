@@ -43,6 +43,13 @@ DEBUG = env_bool("DJANGO_DEBUG", default=False)
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
 CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
 
+# Render sets RENDER_EXTERNAL_HOSTNAME (e.g. petrosmart.onrender.com) by itself,
+# so the site's own address is allowed without typing it in.
+RENDER_HOST = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
+if RENDER_HOST:
+    ALLOWED_HOSTS.append(RENDER_HOST)
+    CSRF_TRUSTED_ORIGINS.append(f"https://{RENDER_HOST}")
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -158,7 +165,9 @@ SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
 
 # Refuse to start a production server with unsafe settings.
 if not DEBUG:
-    if len(SECRET_KEY) < 50 or SECRET_KEY.startswith(("change-me", "django-insecure")):
+    # 40+ characters: a host-generated random key (e.g. Render's 256-bit value,
+    # 44 characters) is accepted; short, typed or example keys are not.
+    if len(SECRET_KEY) < 40 or SECRET_KEY.startswith(("change-me", "django-insecure")):
         raise ImproperlyConfigured("Use a long random DJANGO_SECRET_KEY in production.")
     if not ALLOWED_HOSTS or "*" in ALLOWED_HOSTS:
         raise ImproperlyConfigured("Set DJANGO_ALLOWED_HOSTS to your real domain name(s) in production.")
