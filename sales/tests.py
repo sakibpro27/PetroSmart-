@@ -128,6 +128,11 @@ class SalesTestCase(TestCase):
                                               receipts=receipts, lubes=lubes, expenses=expenses)
         return sheet
 
+    def slip(self, customer, amount, vehicle="", product=None, litres=None):
+        """A credit slip row for card(): HSD (₹90/L) unless another product is given."""
+        return {"id": None, "customer": customer, "product": product or self.hsd, "vehicle_number": vehicle,
+                "amount": D(amount) if amount else None, "litres": D(litres) if litres else None}
+
     def line(self, sheet, code):
         return DailySalesLine.objects.get(sheet=sheet, nozzle__code=code)
 
@@ -144,6 +149,17 @@ class CardTests(SalesTestCase):
         self.assertEqual(n1.stock_consumption, D("20"))
         self.assertEqual((sheet.employee, sheet.dispenser, sheet.entered_by), (self.ravi, self.du, self.manager))
         self.assertTrue(AuditLog.objects.filter(action=AuditLog.Action.CREATE, object_id=str(sheet.pk)).exists())
+
+    def test_ms_and_hsd_totals_are_separate(self):
+        """N1 MS: 20 L delivered, 2 L testing, 18 L × ₹100. N2 HSD: 100 L × ₹90."""
+        figures = services.card_figures(self.card())
+        ms, hsd = figures["products"]
+        self.assertEqual((ms["code"], ms["delivery"], ms["testing"], ms["net"], ms["amount"]),
+                         ("MS", D("20"), D("2"), D("18"), D("1800.00")))
+        self.assertEqual((hsd["code"], hsd["net"], hsd["amount"]), ("HSD", D("100"), D("9000.00")))
+        self.assertEqual(ms["amount"] + hsd["amount"], figures["total_fuel"])
+        split = services.category_split(figures["products"])
+        self.assertEqual([part["net"] for part in split], [D("18"), D("100")])
 
     def test_no_approval_needed(self):
         sheet = self.card()
@@ -203,7 +219,7 @@ class MoneyTests(SalesTestCase):
     def test_balance_formula(self):
         # Fuel 10,800 + lube 700 + receipt 500 - credit 1,200 - gen credit 300 - bank 2,000
         # - company 1,000 - wallet 3,000 - expense 100 = cash to collect 4,400.
-        sheet = self.card(credits=[(self.customer, D("1200"), "MH12AB1234", "77")],
+        sheet = self.card(credits=[self.slip(self.customer, "1200", "MH12AB1234")],
                           receipts=[(self.customer, D("500"), "R-1")],
                           lubes=[(self.oil, D("2"), D("350"))],
                           expenses=[(self.rent, "Tea for staff", D("100"))],
@@ -217,7 +233,7 @@ class MoneyTests(SalesTestCase):
         self.assertEqual(figures["balance"], D("-10.00"))  # ₹10 short
 
     def test_linked_records_update_ledgers_stock_and_expenses(self):
-        sheet = self.card(credits=[(self.customer, D("1200"), "", "")], receipts=[(self.customer, D("500"), "")],
+        sheet = self.card(credits=[self.slip(self.customer, "1200")], receipts=[(self.customer, D("500"), "")],
                           lubes=[(self.oil, D("2"), D("350"))], expenses=[(self.rent, "Tea", D("100"))])
         self.assertEqual(self.customer.balance(), D("5700"))  # 5000 + 1200 - 500
         self.assertEqual(self.oil.stock_at(self.outlet), D("8"))
@@ -230,7 +246,7 @@ class MoneyTests(SalesTestCase):
                                        "employee": self.ravi},
             rows=[{"nozzle": self.n1, "closing_reading": D("480"), "testing_litres": D("0")},
                   {"nozzle": self.n2, "closing_reading": D("1000"), "testing_litres": D("0")}],
-            credits=[(self.customer, D("1500"), "", "")])
+            credits=[self.slip(self.customer, "1500")])
         self.assertIn("over their credit limit", warnings[0])
 
     def test_cannot_sell_more_lube_than_in_stock(self):
@@ -239,11 +255,11 @@ class MoneyTests(SalesTestCase):
         self.assertFalse(DailySalesSheet.objects.exists())
 
     def test_edit_replaces_linked_records(self):
-        sheet = self.card(credits=[(self.customer, D("1200"), "", "")], lubes=[(self.oil, D("2"), D("350"))])
+        sheet = self.card(credits=[self.slip(self.customer, "1200")], lubes=[(self.oil, D("2"), D("350"))])
         services.save_card(user=self.manager, sheet=sheet, header={"employee": self.ravi, "phone_wallet": D("50")},
                            rows=[{"nozzle": self.n1, "closing_reading": D("481"), "testing_litres": D("2")},
                                  {"nozzle": self.n2, "closing_reading": D("1100"), "testing_litres": D("0")}],
-                           credits=[(self.customer, D("200"), "", "")], lubes=[(self.oil, D("1"), D("350"))])
+                           credits=[self.slip(self.customer, "200")], lubes=[(self.oil, D("1"), D("350"))])
         sheet.refresh_from_db()
         self.assertEqual(sheet.phone_wallet, D("50"))
         self.assertEqual(self.line(sheet, "N1").net_sales_litres, D("19"))
@@ -252,7 +268,7 @@ class MoneyTests(SalesTestCase):
         self.assertTrue(AuditLog.objects.filter(action=AuditLog.Action.UPDATE, object_id=str(sheet.pk)).exists())
 
     def test_delete_card_removes_linked_records(self):
-        sheet = self.card(credits=[(self.customer, D("1200"), "", "")], lubes=[(self.oil, D("2"), D("350"))],
+        sheet = self.card(credits=[self.slip(self.customer, "1200")], lubes=[(self.oil, D("2"), D("350"))],
                           expenses=[(self.rent, "Tea", D("100"))])
         services.delete_card(sheet, user=self.manager)
         self.assertFalse(DailySalesSheet.objects.exists())
@@ -369,8 +385,8 @@ class CardScreenTests(SalesTestCase):
 
     def test_save_card_through_screen_with_credit_row(self):
         self.client.force_login(self.manager)
-        response = self.post_card(**{"credit-0-customer": self.customer.pk, "credit-0-amount": "300",
-                                     "credit-0-vehicle_number": "MH12", "credit-0-slip_number": ""})
+        response = self.post_card(**{"credit-0-customer": self.customer.pk, "credit-0-product": self.hsd.pk,
+                                     "credit-0-amount": "300", "credit-0-vehicle_number": "MH12"})
         sheet = DailySalesSheet.objects.get()
         self.assertRedirects(response, sheet.get_absolute_url())
         figures = services.card_figures(sheet)

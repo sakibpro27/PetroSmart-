@@ -1,0 +1,128 @@
+{% extends "layouts/app.html" %}
+{% load ps_format %}
+{% block title %}Bill {{ bill.bill_no }} · {{ bill.customer.name }}{% endblock %}
+{% block breadcrumb %}{{ business.name }} / <a href="{% url 'finance:bill_list' %}">Credit bills</a> / {{ bill.bill_no }}{% endblock %}
+
+{% block content %}
+<div class="page-header no-print">
+  <div>
+    <h1>Bill {{ bill.bill_no }} · {{ bill.customer.name }}</h1>
+    <p class="subtitle">{{ bill.outlet.name }} ({{ bill.outlet.code }}) · made by {{ bill.created_by.get_full_name|default:bill.created_by.username }} on {{ bill.created_at|date:"d M Y, H:i" }}</p>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <button type="button" class="btn btn-primary" onclick="window.print()"><i class="bi bi-printer me-1" aria-hidden="true"></i> Print / Save as PDF</button>
+    <a class="btn btn-outline-secondary" href="{{ bill.customer.get_absolute_url }}">Customer ledger</a>
+  </div>
+</div>
+
+{% if bill.is_cancelled %}
+  <div class="alert alert-danger" role="status">
+    <i class="bi bi-x-circle" aria-hidden="true"></i>
+    <div><strong>Cancelled</strong> by {{ bill.cancelled_by.get_full_name|default:bill.cancelled_by.username }} on {{ bill.cancelled_at|date:"d M Y, H:i" }}: {{ bill.cancel_reason }}. Its slips go on the next bill. The figures below are as originally issued.</div>
+  </div>
+{% endif %}
+
+{% if not bill.outlet.gstin or not bill.outlet.bill_terms %}
+  {% if user.is_dealer %}
+    <div class="alert alert-info no-print"><i class="bi bi-info-circle" aria-hidden="true"></i><div>Add the outlet's GSTIN, mobile, email and terms and conditions in <a href="{% url 'station:outlet_edit' bill.outlet.pk %}">outlet settings</a> to print them on bills.</div></div>
+  {% endif %}
+{% endif %}
+
+<article class="bill-sheet{% if bill.is_cancelled %} is-cancelled{% endif %}">
+  <header class="bill-letterhead">
+    <div class="bill-firm">{{ bill.outlet.name|upper }}.</div>
+    {% if bill.outlet.oil_company %}<div class="bill-dealer">AUTHORISED DEALER OF {{ bill.outlet.oil_company_full_name|upper }}</div>{% endif %}
+    {% if bill.outlet.address %}<div>{{ bill.outlet.address|linebreaksbr }}</div>{% endif %}
+    {% if bill.outlet.gstin %}<div>GSTIN: {{ bill.outlet.gstin }}</div>{% endif %}
+    {% if bill.outlet.phone or bill.outlet.email %}<div>{% if bill.outlet.phone %}Mob-{{ bill.outlet.phone }}{% endif %}{% if bill.outlet.phone and bill.outlet.email %}. {% endif %}{% if bill.outlet.email %}E-mail: {{ bill.outlet.email }}{% endif %}</div>{% endif %}
+  </header>
+
+  <h2 class="bill-title">INVOICE{% if bill.is_cancelled %} <span class="bill-cancelled">CANCELLED</span>{% endif %}</h2>
+
+  <div class="bill-parties">
+    <div class="bill-to">
+      <div class="bill-customer">{{ bill.customer.name|upper }}</div>
+      {% if bill.customer.address %}<div><strong>Billing Address :</strong> {{ bill.customer.address|linebreaksbr }}</div>{% endif %}
+      {% if bill.customer.phone %}<div>Mob: {{ bill.customer.phone }}</div>{% endif %}
+    </div>
+    <dl class="bill-meta">
+      <dt>Bill No</dt><dd><strong>{{ bill.bill_no }}</strong></dd>
+      <dt>Bill Date</dt><dd><strong>{{ bill.bill_date|date:"d/m/Y" }}</strong></dd>
+      <dt>Period</dt><dd><strong>{{ bill.period_from|date:"d-m-Y" }}</strong> To <strong>{{ bill.bill_date|date:"d-m-Y" }}</strong></dd>
+    </dl>
+  </div>
+
+  <div class="table-responsive">
+    <table class="bill-table">
+      <thead>
+        <tr><th scope="col">Sr.</th><th scope="col">Date</th><th scope="col">Item</th><th scope="col">Veh No</th><th scope="col" class="num">Slip</th><th scope="col" class="num">QTY</th><th scope="col" class="num">Rate</th><th scope="col" class="num">Total</th></tr>
+      </thead>
+      <tbody>
+        {% for slip in slips %}
+          <tr>
+            <td>{{ forloop.counter }}</td>
+            <td>{{ slip.sheet.business_date|date:"d/m/Y" }}</td>
+            <td>{% if slip.product %}{% if slip.product.category == "HSD" %}DIESEL{% elif slip.product.category == "MS" %}PETROL{% else %}{{ slip.product.name|upper }}{% endif %}{% else %}—{% endif %}</td>
+            <td>{{ slip.vehicle_number }}</td>
+            <td class="num">{{ slip.slip_no }}</td>
+            <td class="num">{{ slip.litres|qty }}</td>
+            <td class="num">{{ slip.rate|default:"" }}</td>
+            <td class="num">{{ slip.amount|qty }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="8" class="text-center">{% if bill.is_cancelled %}The slips were released when the bill was cancelled.{% endif %}</td></tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr><th scope="row" colspan="7" class="text-center">Total :</th><td class="num fw-bold">{{ bill.slips_total|qty }}</td></tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <div class="bill-summary">
+    {% for name, litres in summary %}<div>{{ name }}({{ litres|qty }})</div>{% endfor %}
+    <div class="num">{{ bill.slips_total|qty }}</div>
+  </div>
+
+  <div class="bill-bottom">
+    <div class="bill-words">
+      <div>Amount (In words)</div>
+      <strong>(Dr) {{ amount_words }}</strong>
+    </div>
+    <dl class="bill-totals">
+      <dt>Round Off :</dt><dd>{{ bill.round_off|qty }}</dd>
+      <dt><strong>Bill Amount :</strong></dt><dd><strong>{{ bill.amount|qty }}</strong></dd>
+      <dt>Previous Bal :</dt><dd>{{ bill.previous_balance|qty }}</dd>
+      <dt><strong>Net Amount :</strong></dt><dd><strong>{{ bill.net_amount|qty }}</strong></dd>
+    </dl>
+  </div>
+
+  {% if terms %}
+    <div class="bill-terms">
+      <strong>Terms &amp; Conditions,</strong>
+      <ol>{% for term in terms %}<li>{{ term }}</li>{% endfor %}</ol>
+    </div>
+  {% endif %}
+
+  <div class="bill-sign">
+    <div class="bill-for">For <strong>{{ bill.outlet.name|upper }}.</strong></div>
+    <div class="bill-sign-row"><span>Receiver's Signature</span><span>Authorized Signature</span></div>
+  </div>
+</article>
+
+{% if cancel_form %}
+  <div class="card form-card mt-4 no-print">
+    <div class="card-header">Cancel this bill (Dealer)</div>
+    <form method="post" action="{% url 'finance:bill_cancel' bill.pk %}" data-confirm="Cancel bill {{ bill.bill_no }}? The number is not reused and its slips go on the next bill.">
+      {% csrf_token %}
+      <div class="card-body">
+        <p class="small text-muted">Use this if the bill was made by mistake or a slip on it must be corrected. The cancellation is recorded in the audit log.</p>
+        {% include "partials/form_field.html" with field=cancel_form.reason %}
+      </div>
+      <div class="card-footer form-actions"><button type="submit" class="btn btn-outline-secondary">Cancel bill</button></div>
+    </form>
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}{% if print_now %}<script>window.addEventListener("load", function () { window.print(); });</script>{% endif %}{% endblock %}

@@ -3,11 +3,12 @@
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.db.models import Sum
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.utils.functional import cached_property
 from django.views import View
-from django.views.generic import CreateView, FormView, ListView, TemplateView, UpdateView
+from django.views.generic import CreateView, DetailView, FormView, ListView, TemplateView, UpdateView
 
 from core.crud import TenantFormViewMixin
 from sales.services import viewable_outlets
@@ -15,10 +16,11 @@ from tenants.permissions import BusinessMemberRequiredMixin, DealerRequiredMixin
 
 from . import services
 from .forms import (
-    CreditAdjustmentForm, CreditCustomerForm, CustomerPaymentForm, ExpenseCategoryForm, ExpenseForm, PaymentMethodForm,
+    BillCancelForm, BillFilterForm, BillForm, CreditAdjustmentForm, CreditCustomerForm, CustomerPaymentForm, ExpenseCategoryForm, ExpenseForm, PaymentMethodForm,
     PeriodFilterForm,
 )
 from .models import CreditCustomer, CustomerPayment, ExpenseCategory, PaymentMethod
+from .words import rupees_in_words
 
 
 def _errors_to_messages(request, error):
@@ -252,3 +254,108 @@ class OperationalSummaryView(DealerRequiredMixin, TemplateView):
                                                             date_from=date_from, date_to=date_to),
                        outstanding=services.outstanding_total(self.request.business))
         return context
+
+
+# --- Credit bills -------------------------------------------------------------------------
+
+
+class BillCreateView(BusinessMemberRequiredMixin, View):
+    """
+    Make a bill for one customer: choose the outlet and the date, check the
+    slips that will go on it, then create it. The bill number is automatic.
+    """
+
+    template_name = "finance/bill_form.html"
+
+    @cached_property
+    def customer(self):
+        return get_object_or_404(CreditCustomer.objects.for_business(self.request.business), pk=self.kwargs["pk"])
+
+    def _render(self, form):
+        preview = None
+        if form.is_bound and form.is_valid():
+            preview = services.bill_preview(self.customer, form.cleaned_data["outlet"], form.cleaned_data["bill_date"])
+        return render(self.request, self.template_name, {"customer": self.customer, "form": form, "preview": preview})
+
+    def get(self, request, *args, **kwargs):
+        user = request.user
+        data = request.GET if "bill_date" in request.GET else None
+        form = BillForm(data, user=user)
+        if data is None and user.accessible_outlets().count() == 1:
+            # One outlet: show its slips straight away.
+            form = BillForm({"outlet": user.accessible_outlets().get().pk,
+                             "bill_date": timezone.localdate().isoformat()}, user=user)
+        return self._render(form)
+
+    def post(self, request, *args, **kwargs):
+        form = BillForm(request.POST, user=request.user)
+        if not form.is_valid():
+            return self._render(form)
+        try:
+            bill = services.create_bill(self.customer, form.cleaned_data["outlet"], form.cleaned_data["bill_date"],
+                                        user=request.user, request=request)
+        except ValidationError as error:
+            _errors_to_messages(request, error)
+            return self._render(form)
+        messages.success(request, f"Bill {bill.bill_no} created for ₹{bill.amount:,.2f}.")
+        return redirect(bill)
+
+
+class BillListView(BusinessMemberRequiredMixin, ListView):
+    template_name = "finance/bill_list.html"
+    context_object_name = "bills"
+    paginate_by = 50
+
+    @cached_property
+    def filter_form(self):
+        return BillFilterForm(self.request.GET or None, business=self.request.business,
+                              outlets=viewable_outlets(self.request.user))
+
+    def get_queryset(self):
+        bills = services.bills_for(self.request.user).select_related("customer", "outlet")
+        if self.filter_form.is_bound and self.filter_form.is_valid():
+            for name in ("customer", "outlet"):
+                if self.filter_form.cleaned_data[name]:
+                    bills = bills.filter(**{name: self.filter_form.cleaned_data[name]})
+        return bills.order_by("-bill_date", "-bill_no")
+
+    def get_context_data(self, **kwargs):
+        return super().get_context_data(filter_form=self.filter_form, query=self.request.GET.urlencode(), **kwargs)
+
+
+class BillDetailView(BusinessMemberRequiredMixin, DetailView):
+    """The printable bill, laid out like a dealer's credit invoice."""
+
+    template_name = "finance/bill_detail.html"
+    context_object_name = "bill"
+
+    def get_queryset(self):
+        return services.bills_for(self.request.user).select_related("outlet", "customer", "created_by", "cancelled_by")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        bill = self.object
+        context.update(
+            slips=bill.sales.select_related("sheet", "product").order_by("sheet__business_date", "slip_no"),
+            summary=services.bill_summary(bill),
+            amount_words=rupees_in_words(bill.amount),
+            terms=[line.strip() for line in bill.outlet.bill_terms.splitlines() if line.strip()],
+            cancel_form=BillCancelForm() if self.request.user.is_dealer and not bill.is_cancelled else None,
+            print_now=self.request.GET.get("print") == "1",
+        )
+        return context
+
+
+class BillCancelView(DealerRequiredMixin, View):
+    def post(self, request, pk):
+        bill = get_object_or_404(services.bills_for(request.user), pk=pk)
+        form = BillCancelForm(request.POST)
+        try:
+            if not form.is_valid():
+                raise ValidationError("Give a reason for cancelling the bill.")
+            services.cancel_bill(bill, form.cleaned_data["reason"], user=request.user, request=request)
+        except ValidationError as error:
+            _errors_to_messages(request, error)
+            return redirect(bill)
+        messages.success(request, f"Bill {bill.bill_no} cancelled. Its slips will go on the next bill.")
+        return redirect(bill)

@@ -1,27 +1,37 @@
 """
 Fuel purchases (Phase 5).
 
-* Supplier      - oil company depot or other fuel supplier.
+* Supplier      - oil company depot or other fuel supplier ("company name").
 * FuelPurchase  - one supplier invoice delivered to one outlet.
-* PurchaseLine  - one product on the invoice (MS and HSD can share an invoice).
-                  The litres actually unloaded go into tanks as
-                  stock.TankReceipt rows linked to the purchase, which is how
-                  tank stock reconciliation picks them up.
+* PurchaseLine  - one row of the invoice: a product unloaded into one tank,
+                  with quantity (KL), rate per KL, delivery charges, VAT,
+                  cess and TCS as printed. MS and HSD can share an invoice.
+                  Each line creates a stock.TankReceipt for the litres
+                  actually unloaded, which is how tank stock reconciliation
+                  picks the delivery up.
 
-The invoice amount is recorded as printed on the invoice. PetroSmart does not
-calculate taxes; any difference from quantity x rate is shown as
-"other charges / taxes" for information only.
+Line total     = quantity (KL) x rate per KL + delivery charges + VAT + cess + TCS
+Invoice amount = sum of line totals + round off
+
+VAT, cess and TCS are typed in as printed on the invoice; PetroSmart does not
+calculate taxes.
 """
 
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
 from django.urls import reverse
 
-from station.models import LITRES, FuelProduct, check_same_business
+from station.models import LITRES, FuelProduct, Tank, check_same_business
 from tenants.models import Outlet, TenantOwnedModel
+
+MONEY = {"max_digits": 14, "decimal_places": 2}
+NON_NEGATIVE = [MinValueValidator(Decimal("0"))]
+PAISE = Decimal("0.01")
+ZERO = Decimal("0")
 
 
 class Supplier(TenantOwnedModel):
@@ -49,14 +59,19 @@ class Supplier(TenantOwnedModel):
 
 class FuelPurchase(TenantOwnedModel):
     outlet = models.ForeignKey(Outlet, on_delete=models.PROTECT, related_name="fuel_purchases")
-    supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT, related_name="purchases")
-    invoice_number = models.CharField(max_length=50)
+    supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT, related_name="purchases",
+                                 verbose_name="company name")
+    invoice_number = models.CharField("invoice no.", max_length=50)
     invoice_date = models.DateField()
     delivery_date = models.DateField(help_text="The day the fuel was unloaded into the tanks.")
-    invoice_amount = models.DecimalField(max_digits=14, decimal_places=2, validators=[MinValueValidator(Decimal("0"))],
-                                         help_text="Total payable as printed on the invoice (₹).")
-    tanker_number = models.CharField(max_length=30, blank=True, help_text="Lorry / tanker registration number.")
-    notes = models.TextField(blank=True)
+    tanker_number = models.CharField("vehicle no.", max_length=30, blank=True,
+                                     help_text="Lorry / tanker registration number.")
+    round_up = models.BooleanField(default=False, help_text="Round the invoice total to the nearest rupee.")
+    # Both calculated by purchases.services.save_purchase() from the lines, never typed in.
+    round_off = models.DecimalField(**MONEY, default=ZERO, editable=False)
+    invoice_amount = models.DecimalField(**MONEY, validators=NON_NEGATIVE, editable=False,
+                                         help_text="Sum of the line totals plus round off (₹).")
+    notes = models.TextField("remark", blank=True)
     entered_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -81,42 +96,88 @@ class FuelPurchase(TenantOwnedModel):
         super().clean()
         check_same_business(self, "outlet", "supplier")
 
-    @property
-    def base_amount(self):
-        """Invoiced litres x rate on every product line, rounded to paise."""
-        return sum((line.base_amount for line in self.lines.all()), Decimal("0"))
+    def _sum(self, name):
+        return sum((getattr(line, name) for line in self.lines.all()), ZERO)
 
     @property
-    def other_charges(self):
-        """Invoice amount minus litres x rate: taxes, freight or other charges on the invoice."""
-        return self.invoice_amount - self.base_amount
+    def base_amount(self):
+        """Quantity x rate on every line, rounded to paise."""
+        return self._sum("base_amount")
+
+    @property
+    def lines_total(self):
+        return self._sum("total")
 
     @property
     def total_invoiced_litres(self):
-        return sum((line.invoiced_litres for line in self.lines.all()), Decimal("0"))
+        return self._sum("invoiced_litres")
+
+    @property
+    def total_received_litres(self):
+        return self._sum("received")
 
     @property
     def product_codes(self):
-        return ", ".join(line.product.code for line in self.lines.all())
+        return ", ".join(dict.fromkeys(line.product.code for line in self.lines.all()))
+
+
+def round_off_for(total, round_up):
+    """Round off to the nearest rupee, half up: 5,574.40 gives -0.40 and 5,574.50 gives +0.50."""
+    if not round_up:
+        return ZERO
+    return total.quantize(Decimal("1"), rounding=ROUND_HALF_UP) - total
 
 
 class PurchaseLine(TenantOwnedModel):
-    """One product on an invoice, e.g. MS 12,000 L at ₹94.50 and HSD 8,000 L at ₹87.20."""
+    """One row of the invoice, e.g. HSD 12 KL at ₹88,450.00 per KL into tank T1."""
 
     purchase = models.ForeignKey(FuelPurchase, on_delete=models.CASCADE, related_name="lines")
-    product = models.ForeignKey(FuelProduct, on_delete=models.PROTECT, related_name="purchase_lines")
-    invoiced_litres = models.DecimalField(**LITRES, validators=[MinValueValidator(Decimal("0.01"))],
-                                          help_text="Quantity printed on the invoice.")
-    purchase_rate = models.DecimalField(max_digits=9, decimal_places=4, validators=[MinValueValidator(Decimal("0.0001"))],
-                                        help_text="Rate per litre on the invoice (₹).")
+    product = models.ForeignKey(FuelProduct, on_delete=models.PROTECT, related_name="purchase_lines",
+                                verbose_name="item name")
+    tank = models.ForeignKey(Tank, on_delete=models.PROTECT, related_name="purchase_lines")
+    invoiced_litres = models.DecimalField(**LITRES, validators=[MinValueValidator(PAISE)],
+                                          help_text="Quantity printed on the invoice, in litres (KL x 1,000).")
+    rate_per_kl = models.DecimalField("rate (₹ per KL)", max_digits=12, decimal_places=2,
+                                      validators=[MinValueValidator(PAISE)])
+    delivery_charges = models.DecimalField("dly taxable charges", **MONEY, default=ZERO, validators=NON_NEGATIVE)
+    vat = models.DecimalField("VAT", **MONEY, default=ZERO, validators=NON_NEGATIVE)
+    cess = models.DecimalField(**MONEY, default=ZERO, validators=NON_NEGATIVE)
+    tcs = models.DecimalField("TCS", **MONEY, default=ZERO, validators=NON_NEGATIVE)
+    received_litres = models.DecimalField(
+        **LITRES, null=True, blank=True, validators=[MinValueValidator(PAISE)],
+        help_text="Litres actually unloaded into the tank. Empty means the same as the invoice.")
 
     class Meta:
-        ordering = ["-product__category", "product__code"]  # MS (petrol) first, then HSD
-        constraints = [models.UniqueConstraint(fields=["purchase", "product"], name="unique_product_per_purchase")]
+        ordering = ["pk"]  # as entered on the invoice
+        constraints = [models.UniqueConstraint(fields=["purchase", "tank"], name="unique_tank_per_purchase")]
 
     def __str__(self):
-        return f"{self.product.code} {self.invoiced_litres} L @ {self.purchase_rate}"
+        return f"{self.product.code} {self.quantity_kl} KL @ {self.rate_per_kl} into {self.tank.code}"
+
+    def clean(self):
+        super().clean()
+        check_same_business(self, "product", "tank")
+        if self.tank_id and self.product_id and self.tank.product_id != self.product_id:
+            raise ValidationError({"tank": f"Tank {self.tank.code} holds {self.tank.product.name}."})
+
+    @property
+    def quantity_kl(self):
+        return (self.invoiced_litres / 1000).quantize(Decimal("0.001"))
 
     @property
     def base_amount(self):
-        return (self.invoiced_litres * self.purchase_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        """Quantity (KL) x rate per KL, rounded to paise."""
+        return (self.invoiced_litres * self.rate_per_kl / 1000).quantize(PAISE, rounding=ROUND_HALF_UP)
+
+    @property
+    def total(self):
+        return self.base_amount + self.delivery_charges + self.vat + self.cess + self.tcs
+
+    @property
+    def received(self):
+        return self.invoiced_litres if self.received_litres is None else self.received_litres
+
+    @property
+    def difference(self):
+        """Received - invoiced litres. Negative is a shortage."""
+        return self.received - self.invoiced_litres

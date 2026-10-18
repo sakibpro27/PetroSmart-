@@ -37,6 +37,7 @@
           <tr>
             <th scope="col">Date</th><th scope="col">Shift</th><th scope="col">Outlet</th><th scope="col">MPD / DU</th><th scope="col">Employee</th>
             <th scope="col" class="num">Sale Ltr</th><th scope="col" class="num">Testing (L)</th><th scope="col" class="num">Net Ltr</th>
+            <th scope="col" class="num">MS sale</th><th scope="col" class="num">HSD sale</th>
             <th scope="col" class="num">Total fuel</th><th scope="col" class="num">Balance / short</th>
           </tr>
         </thead>
@@ -51,6 +52,9 @@
               <td class="num">{{ sheet.total_delivery|qty }}</td>
               <td class="num">{{ sheet.testing_litres|qty }}</td>
               <td class="num fw-semibold">{{ sheet.net_sales_litres|qty }}</td>
+              {% for part in sheet.by_category %}
+                <td class="num">{% if part %}<div>{{ part.net|qty }} L</div><div class="small text-muted">{{ part.amount|inr }}</div>{% else %}—{% endif %}</td>
+              {% endfor %}
               <td class="num">{{ sheet.figures.total_fuel|inr }}</td>
               <td class="num">{% if sheet.figures.balance < 0 %}<span class="status status-danger">Short {{ sheet.figures.balance|inr }}</span>{% elif sheet.figures.balance > 0 %}<span class="status status-warning">Excess {{ sheet.figures.balance|inr }}</span>{% else %}{{ sheet.figures.balance|inr }}{% endif %}</td>
             </tr>

@@ -55,7 +55,7 @@
         </thead>
         <tbody>
           {% for form, row in rows %}
-            <tr class="entry-row{% if form.errors %} has-error{% endif %}" data-opening="{{ row.opening }}" data-price="{{ row.price }}" data-extra="extra-{{ forloop.counter0 }}">
+            <tr class="entry-row{% if form.errors %} has-error{% endif %}" data-product="{{ row.nozzle.product.code }}" data-opening="{{ row.opening }}" data-price="{{ row.price }}" data-extra="extra-{{ forloop.counter0 }}">
               <th scope="row" class="text-nowrap">
                 {{ form.nozzle_id }}
                 <span class="fw-semibold">{{ row.nozzle.code }}</span>
@@ -95,8 +95,19 @@
           {% endfor %}
         </tbody>
         <tfoot>
+          {% for product in card_products %}
+            <tr class="sc-product-total" data-product-total="{{ product.code }}">
+              <th scope="row" colspan="3"><span class="fuel-tag fuel-{{ product.category|lower }}">{{ product.code }}</span> {{ product.name }} total</th>
+              <td class="num" data-ptotal="delivery">—</td>
+              <td class="num" data-ptotal="testing">—</td>
+              <td class="num fw-semibold" data-ptotal="net">—</td>
+              <td></td>
+              <td class="num fw-semibold" data-ptotal="value">—</td>
+              <td></td>
+            </tr>
+          {% endfor %}
           <tr>
-            <th scope="row" colspan="3">Total</th>
+            <th scope="row" colspan="3">Total (all fuel)</th>
             <td class="num" data-total="delivery">—</td>
             <td class="num" data-total="testing">—</td>
             <td class="num fw-semibold" data-total="net">—</td>
@@ -141,6 +152,9 @@
       <section class="sc-box h-100">
         <h2 class="sc-title">Totals</h2>
         <dl class="sc-totals mb-0">
+          {% for product in card_products %}
+            <dt class="sc-sub">{{ product.code }} sale <span class="small text-muted" data-psum-litres="{{ product.code }}"></span></dt><dd data-psum="{{ product.code }}">—</dd>
+          {% endfor %}
           <dt>Total Fuel (Rs)</dt><dd data-sum-out="fuel">—</dd>
           <dt><button type="button" class="sc-link" data-open="lubes">Lube / Oil Sale</button></dt><dd data-sum-out="lubes">—</dd>
           <dt><button type="button" class="sc-link" data-open="receipts">Customer Receipt</button></dt><dd data-sum-out="receipts">—</dd>
@@ -164,7 +178,7 @@
   {# --- Detail rows behind the blue links --- #}
   {% include "sales/partials/detail_formset.html" with key="lubes" title="Lube / Oil Sale" formset=details.lubes hint="Sold at the pump. Reduces lube stock at this outlet." %}
   {% include "sales/partials/detail_formset.html" with key="receipts" title="Customer Receipt" formset=details.receipts hint="Cash received from credit customers at the pump. Reduces their balance." %}
-  {% include "sales/partials/detail_formset.html" with key="credit" title="Credit Sale" formset=details.credit hint="Fuel given on credit. Added to the customer's balance." %}
+  {% include "sales/partials/detail_formset.html" with key="credit" title="Credit Sale" formset=details.credit hint="Fuel given on credit. Enter the amount or the litres. The slip number is given automatically when you save." %}
   {% include "sales/partials/detail_formset.html" with key="expenses" title="Exp / Cash by DSM" formset=details.expenses hint="Cash paid out by the attendant. Recorded in Expenses." %}
 
   <section class="sc-box mb-3">
@@ -181,4 +195,4 @@
 </form>
 {% endblock %}
 
-{% block extra_js %}{{ lube_prices|json_script:"lube-prices" }}<script src="{% static 'js/shift-card.js' %}"></script>{% endblock %}
+{% block extra_js %}{{ lube_prices|json_script:"lube-prices" }}{{ credit_prices|json_script:"credit-prices" }}<script src="{% static 'js/shift-card.js' %}"></script>{% endblock %}

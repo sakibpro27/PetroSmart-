@@ -1,0 +1,62 @@
+{% extends "layouts/app.html" %}
+{% load ps_format %}
+{% block title %}Credit bills{% endblock %}
+{% block breadcrumb %}{{ business.name }} / Credit bills{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Credit bills</h1>
+    <p class="subtitle">Bills to credit customers. To make a bill, open the customer and choose <strong>New bill</strong>.</p>
+  </div>
+  <a class="btn btn-primary" href="{% url 'finance:customer_list' %}"><i class="bi bi-person-vcard me-1" aria-hidden="true"></i> Credit customers</a>
+</div>
+
+<form method="get" class="card mb-3">
+  <div class="card-body">
+    <div class="row gx-3 align-items-end">
+      <div class="col-md-5">{% include "partials/form_field.html" with field=filter_form.customer %}</div>
+      <div class="col-md-4">{% include "partials/form_field.html" with field=filter_form.outlet %}</div>
+      <div class="col-md-3 mb-3"><button type="submit" class="btn btn-outline-secondary w-100" data-no-busy>Filter</button></div>
+    </div>
+  </div>
+</form>
+
+<div class="card table-card">
+  {% if bills %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead><tr><th scope="col">Bill no.</th><th scope="col">Date</th><th scope="col">Outlet</th><th scope="col">Customer</th><th scope="col">Period</th><th scope="col" class="num">Bill amount</th><th scope="col">Status</th></tr></thead>
+        <tbody>
+          {% for bill in bills %}
+            <tr>
+              <td class="fw-semibold"><a href="{{ bill.get_absolute_url }}">{{ bill.bill_no }}</a></td>
+              <td class="text-nowrap">{{ bill.bill_date|date:"d M Y" }}</td>
+              <td>{{ bill.outlet.code }}</td>
+              <td>{{ bill.customer.name }}</td>
+              <td class="small text-nowrap">{{ bill.period_from|date:"d-m-Y" }} to {{ bill.bill_date|date:"d-m-Y" }}</td>
+              <td class="num">{{ bill.amount|inr }}</td>
+              <td>{% if bill.is_cancelled %}<span class="status status-danger"><i class="bi bi-x-circle" aria-hidden="true"></i> Cancelled</span>{% else %}<span class="status status-success"><i class="bi bi-check-circle" aria-hidden="true"></i> Issued</span>{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if is_paginated %}
+      <nav class="card-footer d-flex justify-content-between align-items-center" aria-label="Pages">
+        <span class="small text-muted">Page {{ page_obj.number }} of {{ paginator.num_pages }}</span>
+        <span class="d-flex gap-2">
+          {% if page_obj.has_previous %}<a class="btn btn-sm btn-outline-secondary" href="?page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}
+          {% if page_obj.has_next %}<a class="btn btn-sm btn-outline-secondary" href="?page={{ page_obj.next_page_number }}">Next</a>{% endif %}
+        </span>
+      </nav>
+    {% endif %}
+  {% else %}
+    <div class="empty-state">
+      <i class="bi bi-receipt" aria-hidden="true"></i>
+      <div class="title">No bills yet</div>
+      <div>Open a credit customer and choose <strong>New bill</strong>.</div>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

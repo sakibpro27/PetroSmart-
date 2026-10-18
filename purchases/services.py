@@ -15,7 +15,7 @@ from sales.services import viewable_outlets
 from stock.models import StockLine, TankReceipt
 from stock.services import stock_locked
 
-from .models import FuelPurchase, PurchaseLine
+from .models import ZERO, FuelPurchase, PurchaseLine, round_off_for
 
 
 def purchases_for(user):
@@ -41,13 +41,19 @@ def _check_allowed(user, outlet, day):
         )
 
 
+def _line_summary(line):
+    return (f"{line.product.code} {line.quantity_kl} KL @ {line.rate_per_kl}/KL into {line.tank.code}, "
+            f"total {line.total:.2f}" + (f", received {line.received_litres:.2f} L" if line.received_litres else ""))
+
+
 @transaction.atomic
-def save_purchase(form, lines, allocations, *, user, request=None):
+def save_purchase(form, lines, *, user, request=None):
     """
-    `form` is a valid PurchaseForm, `lines` a list of (product, invoiced_litres,
-    rate) - one per product on the invoice, so MS and HSD can share an invoice -
-    and `allocations` a list of (tank, litres) received into each tank.
-    Existing product lines and receipts are replaced.
+    `form` is a valid PurchaseForm and `lines` a list of PurchaseLine field
+    values (see PurchaseLineForm.line_values), one per row of the invoice.
+    Each row unloads one product into one tank and creates that tank's receipt.
+    The invoice amount and round off are calculated from the rows.
+    Existing rows and receipts are replaced.
     """
     purchase = form.instance
     is_new = purchase.pk is None
@@ -58,48 +64,42 @@ def save_purchase(form, lines, allocations, *, user, request=None):
     _check_allowed(user, outlet, day)
 
     if not lines:
-        raise ValidationError("Enter at least one product with its invoiced quantity and rate.")
-    products = {product.pk: product for product, _litres, _rate in lines}
-    if len(products) != len(lines):
-        raise ValidationError("Each product can appear only once on an invoice. Add the litres together instead.")
-    if not allocations:
-        raise ValidationError("Allocate the received litres to at least one tank.")
-    for tank, _litres in allocations:
+        raise ValidationError("Enter at least one item with its quantity, rate and tank.")
+    for values in lines:
+        tank, product = values["tank"], values["product"]
         if tank.outlet_id != outlet.pk:
             raise ValidationError(f"Tank {tank.code} is at {tank.outlet.code}, not at {outlet.code}.")
-        if tank.product_id not in products:
-            raise ValidationError(f"Tank {tank.code} holds {tank.product.name}, which is not on this invoice.")
-    if len({tank.pk for tank, _ in allocations}) != len(allocations):
-        raise ValidationError("Each tank can appear only once. Add the litres together instead.")
-    received_products = {tank.product_id for tank, _ in allocations}
-    missing = [p.name for pk, p in products.items() if pk not in received_products]
-    if missing:
-        raise ValidationError(f"Allocate the received litres of {', '.join(missing)} to a tank.")
+        if tank.product_id != product.pk:
+            raise ValidationError(f"Tank {tank.code} holds {tank.product.name}, not {product.name}.")
+    if len({values["tank"].pk for values in lines}) != len(lines):
+        raise ValidationError("Each tank can appear only once on an invoice. Add the quantities together instead.")
 
+    new_lines = [PurchaseLine(business=user.business, **values) for values in lines]
+    lines_total = sum((line.total for line in new_lines), ZERO)
     purchase = form.save(commit=False)
+    purchase.round_off = round_off_for(lines_total, purchase.round_up)
+    purchase.invoice_amount = lines_total + purchase.round_off
     if is_new:
         purchase.entered_by = user
     purchase.save()
-    old_lines = {l.product.code: f"{l.invoiced_litres:.2f} @ {l.purchase_rate}" for l in purchase.lines.select_related("product")}
-    purchase.lines.all().delete()
-    for product, litres, rate in lines:
-        PurchaseLine.objects.create(business=purchase.business, purchase=purchase, product=product,
-                                    invoiced_litres=litres, purchase_rate=rate)
-    new_lines = {product.code: f"{litres:.2f} @ {rate}" for product, litres, rate in lines}
-    old = {r.tank.code: f"{r.litres:.2f}" for r in purchase.receipts.select_related("tank")}
+
+    old_lines = [_line_summary(line) for line in purchase.lines.select_related("product", "tank")]
     purchase.receipts.all().delete()
-    for tank, litres in allocations:
+    purchase.lines.all().delete()
+    for line in new_lines:
+        line.purchase = purchase
+        line.full_clean()
+        line.save()
         TankReceipt.objects.create(
-            business=purchase.business, outlet=outlet, tank=tank, received_on=day, litres=litres,
+            business=purchase.business, outlet=outlet, tank=line.tank, received_on=day, litres=line.received,
             reference=purchase.invoice_number, purchase=purchase, entered_by=user,
             notes=f"From {purchase.supplier.name}",
         )
-    new = {tank.code: f"{litres:.2f}" for tank, litres in allocations}
     changes = form.audit_changes()
-    if old_lines != new_lines:
-        changes["products"] = {"from": old_lines, "to": new_lines} if not is_new else new_lines
-    if old != new:
-        changes["tank_allocation"] = {"from": old, "to": new} if not is_new else new
+    summary = [_line_summary(line) for line in new_lines]
+    if old_lines != summary:
+        changes["lines"] = {"from": old_lines, "to": summary} if not is_new else summary
+    changes["invoice_amount"] = f"{purchase.invoice_amount:.2f}"
     AuditLog.record(AuditLog.Action.CREATE if is_new else AuditLog.Action.UPDATE,
                     f"{'Recorded' if is_new else 'Updated'} fuel purchase {purchase}", user=user, obj=purchase,
                     changes=changes, request=request)
@@ -111,25 +111,11 @@ def delete_purchase(purchase, *, user, request=None):
     _check_allowed(user, purchase.outlet, purchase.delivery_date)
     AuditLog.record(AuditLog.Action.DELETE, f"Deleted fuel purchase {purchase}", user=user, obj=purchase,
                     changes={"invoice_number": purchase.invoice_number, "supplier": str(purchase.supplier),
-                             "products": {l.product.code: f"{l.invoiced_litres:.2f} @ {l.purchase_rate}"
-                                          for l in purchase.lines.select_related("product")},
-                             "invoice_amount": str(purchase.invoice_amount),
-                             "receipts": {r.tank.code: str(r.litres) for r in purchase.receipts.select_related("tank")}},
+                             "lines": [_line_summary(line) for line in purchase.lines.select_related("product", "tank")],
+                             "invoice_amount": str(purchase.invoice_amount)},
                     request=request)
     purchase.receipts.all().delete()
     purchase.delete()
-
-
-def product_comparison(purchase):
-    """For each product on the invoice: invoiced litres, litres received into tanks, and the difference."""
-    received = {}
-    for receipt in purchase.receipts.select_related("tank"):
-        received[receipt.tank.product_id] = received.get(receipt.tank.product_id, Decimal("0")) + receipt.litres
-    rows = []
-    for line in purchase.lines.select_related("product"):
-        got = received.get(line.product_id, Decimal("0"))
-        rows.append({"line": line, "received": got, "difference": got - line.invoiced_litres})
-    return rows
 
 
 def stock_comparison(purchase):

@@ -11,13 +11,13 @@ These records support day-to-day management. They are not a statutory
 account and do not calculate GST or other taxes.
 """
 
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
-from django.db.models import Sum
+from django.db.models import Max, Sum
 from django.urls import reverse
 
 from station.models import check_same_business
@@ -98,6 +98,10 @@ def other_category(business):
 # --- Customer credit ----------------------------------------------------------------
 
 
+def _total(queryset, field="amount"):
+    return queryset.aggregate(total=Sum(field))["total"] or ZERO
+
+
 class CreditCustomer(TenantOwnedModel):
     name = models.CharField(max_length=150)
     phone = models.CharField(max_length=20, blank=True)
@@ -123,30 +127,68 @@ class CreditCustomer(TenantOwnedModel):
     def get_absolute_url(self):
         return reverse("finance:customer_ledger", args=[self.pk])
 
-    def balance(self):
-        """Amount the customer owes now: opening + credit sales - payments + adjustments."""
-        sales = self.credit_sales.aggregate(total=Sum("amount"))["total"] or ZERO
-        paid = self.payments.aggregate(total=Sum("amount"))["total"] or ZERO
-        adjusted = self.adjustments.aggregate(total=Sum("amount"))["total"] or ZERO
-        return self.opening_balance + sales - paid + adjusted
+    def balance(self, as_of=None):
+        """
+        Amount the customer owes: opening + credit sales - payments + adjustments
+        + bill round offs. With `as_of`, only entries dated on or before that day.
+        """
+        sales, paid = self.credit_sales.all(), self.payments.all()
+        adjusted, bills = self.adjustments.all(), self.bills.filter(status=CreditBill.Status.ISSUED)
+        if as_of is not None:
+            sales = sales.filter(sheet__business_date__lte=as_of)
+            paid, adjusted = paid.filter(received_on__lte=as_of), adjusted.filter(adjusted_on__lte=as_of)
+            bills = bills.filter(bill_date__lte=as_of)
+        return (self.opening_balance + _total(sales) - _total(paid) + _total(adjusted)
+                + _total(bills, "round_off"))
 
 
 class CreditSale(TenantOwnedModel):
-    """Fuel given on credit on a Shift Card. Increases what the customer owes."""
+    """
+    Fuel given on credit on a Shift Card. Increases what the customer owes.
+
+    The amount is what the slip is written for; litres = amount / rate, where
+    the rate is the outlet's selling price for the product on the card's date.
+    Slip numbers are given automatically, one series per outlet, and never
+    reused. A sale on an issued bill cannot be changed until that bill is
+    cancelled.
+    """
 
     sheet = models.ForeignKey("sales.DailySalesSheet", on_delete=models.PROTECT, related_name="credit_sales",
                               verbose_name="shift card")
+    outlet = models.ForeignKey(Outlet, on_delete=models.PROTECT, related_name="credit_sales")
+    slip_no = models.PositiveIntegerField("slip no.")
     customer = models.ForeignKey(CreditCustomer, on_delete=models.PROTECT, related_name="credit_sales")
+    # Empty only on credit sales recorded before products were added to slips.
+    product = models.ForeignKey("station.FuelProduct", on_delete=models.PROTECT, null=True, blank=True,
+                                related_name="credit_sales")
+    rate = models.DecimalField("rate (₹/L)", max_digits=7, decimal_places=2, null=True, blank=True)
+    litres = models.DecimalField("qty (L)", max_digits=12, decimal_places=2, null=True, blank=True)
     amount = models.DecimalField(**MONEY, validators=POSITIVE)
     vehicle_number = models.CharField(max_length=20, blank=True)
-    slip_number = models.CharField(max_length=40, blank=True, help_text="Credit slip / indent number")
+    bill = models.ForeignKey("CreditBill", on_delete=models.PROTECT, null=True, blank=True, related_name="sales")
 
     class Meta:
         ordering = ["pk"]
+        constraints = [
+            models.UniqueConstraint(fields=["outlet", "slip_no"], name="unique_slip_no_per_outlet"),
+        ]
+
+    def __str__(self):
+        return f"Slip {self.slip_no} ({self.outlet.code})"
 
     def clean(self):
         super().clean()
-        check_same_business(self, "sheet", "customer")
+        check_same_business(self, "sheet", "customer", "outlet", "product")
+
+
+def litres_for(amount, rate):
+    """Litres on a credit slip written for `amount` rupees at `rate` per litre, to 2 decimals."""
+    return (amount / rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def next_number(queryset, field):
+    """The next number in a series: highest so far + 1. Call inside a transaction holding a lock."""
+    return (queryset.aggregate(top=Max(field))["top"] or 0) + 1
 
 
 class CustomerPayment(TenantOwnedModel):
@@ -193,6 +235,69 @@ class CreditAdjustment(TenantOwnedModel):
         super().clean()
         if self.amount == 0:
             raise ValidationError({"amount": "An adjustment cannot be zero."})
+
+
+class CreditBill(TenantOwnedModel):
+    """
+    A bill to a credit customer for one outlet's credit slips, from the day
+    after their previous bill up to the bill date. Bill numbers run in one
+    series per outlet and are never reused, even when a bill is cancelled.
+
+        Bill amount = slips total + round off (to the nearest rupee)
+        Net amount  = previous balance + bill amount = what the customer owes on the bill date
+
+    The round off is part of what the customer owes, so it appears in the
+    customer's ledger. Cancelling a bill frees its slips for the next bill.
+    """
+
+    class Status(models.TextChoices):
+        ISSUED = "ISSUED", "Issued"
+        CANCELLED = "CANCELLED", "Cancelled"
+
+    outlet = models.ForeignKey(Outlet, on_delete=models.PROTECT, related_name="credit_bills")
+    customer = models.ForeignKey(CreditCustomer, on_delete=models.PROTECT, related_name="bills")
+    bill_no = models.PositiveIntegerField("bill no.")
+    bill_date = models.DateField(help_text="Slips up to and including this date are billed.")
+    period_from = models.DateField()
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.ISSUED)
+    # Snapshot of the figures when the bill was made, so a reprint always matches the original.
+    slips_total = models.DecimalField(**MONEY)
+    round_off = models.DecimalField(**MONEY, default=ZERO)
+    previous_balance = models.DecimalField(**MONEY)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    cancelled_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+                                     related_name="+")
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancel_reason = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ["-bill_date", "-bill_no"]
+        constraints = [
+            models.UniqueConstraint(fields=["outlet", "bill_no"], name="unique_bill_no_per_outlet"),
+        ]
+
+    def __str__(self):
+        return f"Bill {self.bill_no} ({self.outlet.code}) {self.customer}"
+
+    def get_absolute_url(self):
+        return reverse("finance:bill_detail", args=[self.pk])
+
+    def clean(self):
+        super().clean()
+        check_same_business(self, "outlet", "customer")
+
+    @property
+    def is_cancelled(self):
+        return self.status == self.Status.CANCELLED
+
+    @property
+    def amount(self):
+        return self.slips_total + self.round_off
+
+    @property
+    def net_amount(self):
+        return self.previous_balance + self.amount
 
 
 # --- Expenses -------------------------------------------------------------------------

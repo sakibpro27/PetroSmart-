@@ -3,7 +3,7 @@
 Last updated: 18 October 2026, after **Phase 9**. **All nine development
 phases are built.** Phase 9 added subscription renewals, a login lockout,
 strict production settings and the deployment guide (`DEPLOYMENT.md`).
-Automated tests: 220 run, 220 passed (`python manage.py test`, 18 Oct 2026).
+Automated tests: 231 run, 231 passed (`python manage.py test`, 18 Oct 2026, after the purchase, shift card and credit bill changes).
 Production check: `manage.py check --deploy` reports only the optional HSTS
 preload warning. Not yet verified: running on PostgreSQL and a real server.
 
@@ -41,9 +41,9 @@ the screenshots (item 13) from the running application.
 | 12 | Data dictionary | Phase-by-phase | 🟡 Ready to draft | + station tables (product, price, dispenser, nozzle, shift) |
 | 13 | UI screenshots and explanations | Phase-by-phase | 🟡 Ready to draft | + outlet set-up, products, users, business profile |
 | 14 | Algorithms and formulas | Phases 3–4 | 🟡 Ready to draft | `sales/calculations.py` (sales, testing litres, meter reset) and `stock/calculations.py` (reconciliation without double subtraction) |
-| 15 | Test plan, test cases, results | Phase-by-phase | 🟡 Ready to draft | 220 automated tests passed on 18 Oct 2026 (Phases 1–6: 183, Phase 7: 12, Phase 8: 15, Phase 9: 10) |
+| 15 | Test plan, test cases, results | Phase-by-phase | 🟡 Ready to draft | 231 automated tests passed on 18 Oct 2026 (includes credit slips and bills, invoice-style purchases, MS/HSD split on shift cards) |
 | 16 | Security, authentication, authorization, multi-tenant isolation | Phases 1–9 | 🟡 Ready to draft | Includes the login lockout, audit log, production settings check |
-| 17 | Installation, configuration, execution (Windows) | Phase 1 | 🟡 Ready to draft | Root `README.md`; hosting in `DEPLOYMENT.md` |
+| 17 | Installation, configuration, execution (Windows) | Phase 1 | 🟡 Ready to draft | Root `README.md`; hosting in `DEPLOYMENT.md`; free demo hosting in `FREE_HOSTING.md` |
 | 18 | User manual summary (Dealer and Manager) | Phases 2–9 | 🟡 Ready to draft | Summarises `user-manual/` |
 | 19 | Limitations, future enhancements, conclusion, references | Phase 9 | 🟡 Ready to draft | Real limitations: manual readings only (no dispenser/payment integration), no GST or statutory accounting, observed litres only (no temperature correction), PostgreSQL deployment not yet tested, no dark mode, Indian grouping not applied inside Excel cells |
 
@@ -56,7 +56,7 @@ the screenshots (item 13) from the running application.
 | Manager: daily sales entry and testing litres | Phase 3 | 🟡 Ready to draft |
 | Dealer: reviewing and approving entries, corrections | Phase 3 | 🟡 Ready to draft |
 | Tank stock (dip entry, variation, approval) and fuel received | Phase 4 | 🟡 Ready to draft |
-| Fuel purchases, collections, credit, expenses | Phases 5–6 | 🟡 Ready to draft |
+| Fuel purchases (invoice rows with VAT/cess/TCS), collections, credit slips and credit bills, expenses | Phases 5–6 | 🟡 Ready to draft |
 | Dashboard and reports (PDF / Excel) | Phase 7 | 🟡 Ready to draft |
 | Inventory, employees, reminders, audit log | Phase 8 | 🟡 Ready to draft |
 | Subscription and renewal | Phase 9 | 🟡 Ready to draft |
@@ -91,3 +91,4 @@ the screenshots (item 13) from the running application.
 | 18 Oct 2026 | Phases 5–6 | Purchases and finance built; items 15 and the user-manual items updated |
 | 18 Oct 2026 | Phases 7–8 | Dashboard, reports and exports, inventory, staff, reminders and audit log built |
 | 18 Oct 2026 | Phase 9 | Subscriptions, hardening and the deployment guide; every remaining item is now ready to draft |
+| 18 Oct 2026 | After Phase 9 | Fuel purchase screen redesigned like a dealer invoice (KL, rate per KL, delivery charges, VAT, cess, TCS, tank per row, round off); MS and HSD shown separately on shift cards; credit slips get automatic slip numbers, item, litres and rate; credit bills with automatic bill numbers, period from the last bill, amount in words and print layout; free hosting guide. 231 tests pass |

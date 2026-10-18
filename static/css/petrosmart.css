@@ -381,3 +381,86 @@ h1, h2, h3, h4, h5, h6 { color: var(--ps-text); font-weight: 600; letter-spacing
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
+
+/* Shift card: MS and HSD subtotal rows under the pump readings */
+.sc-table tfoot .sc-product-total > * { background: var(--ps-forest-soft); font-weight: 500; }
+.sc-table tfoot .sc-product-total th { font-weight: 500; }
+
+/* --- Purchase (Fuel) invoice screen ------------------------------------ */
+.pf-header {
+  display: grid; gap: 0 1rem; align-items: end;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+}
+.pf-header .pf-company { grid-column: span 2; position: relative; }
+.pf-header .pf-round { min-width: 6.5rem; }
+.pf-header .pf-round .mb-3 { margin-bottom: 1.4rem !important; }
+.pf-add-supplier { position: absolute; right: 0; top: 0; }
+@media (max-width: 575.98px) { .pf-header .pf-company { grid-column: auto; } }
+
+.pf-table { --bs-table-border-color: var(--ps-border); min-width: 1080px; }
+.pf-table thead th { text-align: center; white-space: nowrap; }
+.pf-table td { padding: 0.3rem 0.35rem; }
+.pf-table .pf-item { min-width: 8.5rem; }
+.pf-table .pf-item .form-select { font-weight: 600; }
+.pf-table .pf-num { min-width: 6.5rem; }
+.pf-table .pf-num .form-control { text-align: right; font-variant-numeric: tabular-nums; }
+.pf-table .pf-tank { min-width: 9rem; }
+.pf-table .pf-tank .form-select { font-size: var(--ps-font-size-sm); }
+.pf-table tbody.has-error > tr:first-child { box-shadow: inset 3px 0 0 var(--ps-danger-text); }
+.pf-table .pf-extra td { background: var(--ps-amber-soft); }
+.pf-table tfoot th, .pf-table tfoot td { background: #FAF8F3; }
+.pf-icon { padding: 0.15rem 0.35rem; border: 0; background: transparent; font-size: 1.05rem; }
+.pf-delete { color: var(--ps-danger-text); }
+.pf-info { color: var(--ps-forest); }
+.pf-icon:hover { background: var(--ps-forest-soft); }
+.pf-footer { display: flex; flex-wrap: wrap; gap: 0.75rem 2rem; align-items: center; margin-top: 0.75rem; }
+.pf-add { color: var(--ps-text); font-weight: 600; text-decoration: none; }
+.pf-remark { flex: 1 1 18rem; max-width: 40rem; margin-inline: auto; }
+
+/* --- Credit bill (printable invoice) ------------------------------------ */
+.bill-sheet {
+  max-width: 210mm; margin: 0 auto; background: #fff; color: #000;
+  border: 2px solid #000; padding: 0; font-size: 0.875rem;
+}
+.bill-sheet.is-cancelled { background: repeating-linear-gradient(-45deg, #fff, #fff 22px, #FBF6F4 22px, #FBF6F4 44px); }
+.bill-letterhead { text-align: center; padding: 1rem 1rem 0.75rem; border-bottom: 1px solid #000; line-height: 1.45; }
+.bill-firm { font-size: 1.6rem; font-weight: 700; letter-spacing: 0.02em; }
+.bill-dealer { font-weight: 700; }
+.bill-title { text-align: center; font-size: 1.05rem; font-weight: 700; margin: 0; padding: 0.4rem; border-bottom: 1px solid #000; color: #000; }
+.bill-cancelled { color: var(--ps-danger-text); border: 2px solid var(--ps-danger-text); padding: 0 0.4rem; margin-left: 0.5rem; }
+.bill-parties { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid #000; }
+.bill-to { padding: 0.6rem 0.75rem; border-right: 1px solid #000; }
+.bill-customer { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.2rem; }
+.bill-meta { display: grid; grid-template-columns: auto 1fr; gap: 0.15rem 0.6rem; margin: 0; padding: 0.6rem 0.75rem; justify-self: end; }
+.bill-meta dt { font-weight: 400; }
+.bill-meta dt::after { content: " :"; }
+.bill-meta dd { margin: 0; }
+.bill-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.bill-table th, .bill-table td { border: 1px solid #000; padding: 0.15rem 0.4rem; }
+.bill-table thead th { font-weight: 700; text-align: left; }
+.bill-table .num { text-align: right; }
+.bill-table tbody td { border-top: 0; border-bottom: 0; }
+.bill-table tbody tr:last-child td { padding-bottom: 6rem; }
+.bill-summary { display: grid; grid-template-columns: 1fr 1fr 1fr auto; border-top: 1px solid #000; border-bottom: 1px solid #000; font-weight: 700; }
+.bill-summary > div { padding: 0.2rem 0.5rem; text-align: center; border-right: 1px solid #000; }
+.bill-summary > div:last-child { border-right: 0; min-width: 8rem; text-align: right; }
+.bill-bottom { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid #000; }
+.bill-words { padding: 0.5rem 0.75rem; border-right: 1px solid #000; }
+.bill-totals { display: grid; grid-template-columns: 1fr auto; gap: 0.1rem 0.75rem; margin: 0; padding: 0.5rem 0.75rem; text-align: right; font-variant-numeric: tabular-nums; }
+.bill-totals dt { font-weight: 400; }
+.bill-totals dd { margin: 0; min-width: 7rem; }
+.bill-terms { padding: 0.5rem 0.75rem; border-bottom: 1px solid #000; }
+.bill-terms ol { margin: 0; padding-left: 1.2rem; }
+.bill-sign { padding: 0.5rem 0.75rem 0.6rem; }
+.bill-for { text-align: right; margin-bottom: 3.5rem; }
+.bill-sign-row { display: flex; justify-content: space-between; font-weight: 700; }
+@media (max-width: 575.98px) {
+  .bill-parties, .bill-bottom { grid-template-columns: 1fr; }
+  .bill-to, .bill-words { border-right: 0; border-bottom: 1px solid #000; }
+  .bill-summary { grid-template-columns: 1fr 1fr; }
+}
+@media print {
+  @page { size: A4; margin: 10mm; }
+  .bill-sheet { max-width: none; font-size: 10pt; }
+  .bill-table tbody tr:last-child td { padding-bottom: 3rem; }
+}

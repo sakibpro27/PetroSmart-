@@ -1,4 +1,4 @@
-﻿from django.urls import path
+from django.urls import path
 
 from . import views
 
@@ -11,6 +11,10 @@ urlpatterns = [
     path("customers/<int:pk>/", views.CustomerLedgerView.as_view(), name="customer_ledger"),
     path("customers/<int:pk>/edit/", views.CustomerUpdateView.as_view(), name="customer_edit"),
     path("customers/<int:pk>/adjust/", views.AdjustmentCreateView.as_view(), name="customer_adjust"),
+    path("customers/<int:pk>/bill/", views.BillCreateView.as_view(), name="bill_create"),
+    path("bills/", views.BillListView.as_view(), name="bill_list"),
+    path("bills/<int:pk>/", views.BillDetailView.as_view(), name="bill_detail"),
+    path("bills/<int:pk>/cancel/", views.BillCancelView.as_view(), name="bill_cancel"),
     path("payments/new/", views.PaymentCreateView.as_view(), name="payment_create"),
     path("payments/<int:pk>/delete/", views.PaymentDeleteView.as_view(), name="payment_delete"),
 

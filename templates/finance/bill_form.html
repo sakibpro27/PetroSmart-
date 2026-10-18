@@ -1,0 +1,71 @@
+{% extends "layouts/app.html" %}
+{% load ps_format %}
+{% block title %}New bill · {{ customer.name }}{% endblock %}
+{% block breadcrumb %}{{ business.name }} / <a href="{% url 'finance:customer_list' %}">Credit customers</a> / <a href="{{ customer.get_absolute_url }}">{{ customer.name }}</a> / New bill{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>New bill · {{ customer.name }}</h1>
+    <p class="subtitle">The bill covers every unbilled credit slip from the day after the last bill up to the date you choose. The bill number is given automatically.</p>
+  </div>
+</div>
+
+<form method="get" class="card form-card mb-3">
+  <div class="card-body">
+    <div class="row gx-3 align-items-end">
+      <div class="col-md-5">{% include "partials/form_field.html" with field=form.outlet %}</div>
+      <div class="col-md-4">{% include "partials/form_field.html" with field=form.bill_date %}</div>
+      <div class="col-md-3 mb-3"><button type="submit" class="btn btn-outline-secondary w-100" data-no-busy><i class="bi bi-search me-1" aria-hidden="true"></i> Show slips</button></div>
+    </div>
+  </div>
+</form>
+
+{% if preview %}
+  <div class="card table-card mb-3">
+    <div class="card-header d-flex flex-wrap justify-content-between gap-2">
+      <span>Period {{ preview.period_from|date:"d-m-Y" }} to {{ form.cleaned_data.bill_date|date:"d-m-Y" }}</span>
+      <span class="small text-muted fw-normal">{% if preview.previous %}Previous bill: no. {{ preview.previous.bill_no }} up to {{ preview.previous.bill_date|date:"d M Y" }}{% else %}First bill for this customer at {{ form.cleaned_data.outlet.code }}{% endif %}</span>
+    </div>
+    {% if preview.slips %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead><tr><th scope="col">Sr.</th><th scope="col">Date</th><th scope="col">Item</th><th scope="col">Veh no.</th><th scope="col" class="num">Slip</th><th scope="col" class="num">Qty (L)</th><th scope="col" class="num">Rate</th><th scope="col" class="num">Total</th></tr></thead>
+          <tbody>
+            {% for slip in preview.slips %}
+              <tr>
+                <td>{{ forloop.counter }}</td>
+                <td>{{ slip.sheet.business_date|date:"d/m/Y" }}</td>
+                <td>{{ slip.product.name|default:"—" }}</td>
+                <td>{{ slip.vehicle_number|default:"" }}</td>
+                <td class="num">{{ slip.slip_no }}</td>
+                <td class="num">{{ slip.litres|qty }}</td>
+                <td class="num">{{ slip.rate|default:"" }}</td>
+                <td class="num">{{ slip.amount|qty }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr><th scope="row" colspan="7" class="text-end fw-normal">Slips total</th><td class="num">{{ preview.total|inr }}</td></tr>
+            <tr><th scope="row" colspan="7" class="text-end fw-normal">Round off</th><td class="num">{{ preview.round_off|inr }}</td></tr>
+            <tr><th scope="row" colspan="7" class="text-end">Bill amount</th><td class="num fw-bold">{{ preview.amount|inr }}</td></tr>
+          </tfoot>
+        </table>
+      </div>
+      <form method="post" class="card-footer form-actions">
+        {% csrf_token %}
+        <input type="hidden" name="outlet" value="{{ form.cleaned_data.outlet.pk }}">
+        <input type="hidden" name="bill_date" value="{{ form.cleaned_data.bill_date|date:'Y-m-d' }}">
+        <a class="btn btn-outline-secondary" href="{{ customer.get_absolute_url }}">Cancel</a>
+        <button type="submit" class="btn btn-primary" data-busy-text="Creating bill…"><i class="bi bi-receipt me-1" aria-hidden="true"></i> Create bill</button>
+      </form>
+    {% else %}
+      <div class="empty-state">
+        <i class="bi bi-receipt" aria-hidden="true"></i>
+        <div class="title">Nothing to bill</div>
+        <div>{{ customer.name }} has no unbilled credit slips at {{ form.cleaned_data.outlet.code }} up to {{ form.cleaned_data.bill_date|date:"d M Y" }}.</div>
+      </div>
+    {% endif %}
+  </div>
+{% endif %}
+{% endblock %}

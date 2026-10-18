@@ -10,7 +10,7 @@ from django.db.models import Sum
 
 from finance.models import CreditCustomer
 from finance.services import expenses_for
-from purchases.services import product_comparison, purchases_for
+from purchases.services import purchases_for
 from sales.models import DailySalesSheet
 from sales.reports import GROUPINGS, sales_summary, summary_lines
 from sales.services import card_figures
@@ -92,33 +92,35 @@ def stock_report(user, outlets, params):
 def purchases_report(user, outlets, params):
     purchases = (purchases_for(user).filter(outlet__in=outlets,
                                             delivery_date__range=(params["date_from"], params["date_to"]))
-                 .select_related("outlet", "supplier").order_by("delivery_date", "pk"))
+                 .select_related("outlet", "supplier").prefetch_related("lines__product", "lines__tank")
+                 .order_by("delivery_date", "pk"))
     product = params.get("product")
-    rows, invoiced, received, amount = [], ZERO, ZERO, ZERO
-    # One row per product on each invoice; the invoice amount is shown once, on its first row.
+    rows, invoiced, received, line_sum, amount = [], ZERO, ZERO, ZERO, ZERO
+    # One row per invoice row; the invoice amount (with round off) is shown once, on its first row.
     for p in purchases:
-        for index, row in enumerate(product_comparison(p)):
-            line = row["line"]
+        for index, line in enumerate(p.lines.all()):
             if product and line.product_id != product.pk:
                 continue
             first = index == 0
             rows.append([p.delivery_date, p.invoice_number, p.supplier.name, p.outlet.code, line.product.code,
-                         line.invoiced_litres, row["received"], row["difference"], line.purchase_rate,
-                         p.invoice_amount if first and not product else ""])
-            invoiced, received = invoiced + line.invoiced_litres, received + row["received"]
+                         line.tank.code, line.invoiced_litres, line.received, line.difference, line.rate_per_kl,
+                         line.total, p.invoice_amount if first and not product else ""])
+            invoiced, received, line_sum = invoiced + line.invoiced_litres, received + line.received, line_sum + line.total
             if first and not product:
                 amount += p.invoice_amount
     return ReportTable(
         title="Fuel purchases and deliveries",
         subtitle=_period(params),
-        columns=[Column("Delivered", DATE), Column("Invoice"), Column("Supplier"), Column("Outlet"), Column("Product"),
-                 Column("Invoiced (L)", LITRES), Column("Received (L)", LITRES), Column("Difference (L)", LITRES),
-                 Column("Rate (₹/L)", MONEY), Column("Invoice amount (₹)", MONEY)],
+        columns=[Column("Delivered", DATE), Column("Invoice"), Column("Company"), Column("Outlet"), Column("Product"),
+                 Column("Tank"), Column("Invoiced (L)", LITRES), Column("Received (L)", LITRES),
+                 Column("Difference (L)", LITRES), Column("Rate (₹/KL)", MONEY), Column("Row total (₹)", MONEY),
+                 Column("Invoice amount (₹)", MONEY)],
         rows=rows,
-        totals=["Total", "", "", "", "", invoiced, received, received - invoiced, "", amount if not product else ""],
-        notes=["One row per product on each invoice. Difference = litres received into that product's tanks − "
-               "invoiced quantity. Invoice amounts are as printed (shown once per invoice); PetroSmart does not "
-               "calculate taxes."],
+        totals=["Total", "", "", "", "", "", invoiced, received, received - invoiced, "", line_sum,
+                amount if not product else ""],
+        notes=["One row per invoice row. Row total = quantity (KL) × rate + delivery charges + VAT + cess + TCS, "
+               "as typed from the invoice. Invoice amount = row totals + round off, shown once per invoice.",
+               "Difference = litres received into the tank − invoiced quantity. PetroSmart does not calculate taxes."],
     )
 
 

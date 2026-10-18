@@ -149,8 +149,22 @@ class Outlet(TenantOwnedModel):
     oil_company = models.CharField(
         max_length=60, blank=True, help_text="e.g. IOCL, BPCL, HPCL, Nayara, Jio-bp."
     )
+    # Printed at the top of credit bills.
+    gstin = models.CharField("GSTIN", max_length=15, blank=True)
+    phone = models.CharField("mobile", max_length=20, blank=True)
+    email = models.EmailField(blank=True)
+    bill_terms = models.TextField(
+        "terms and conditions on bills", blank=True,
+        help_text="Printed at the bottom of every credit bill. One condition per line.",
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    OIL_COMPANY_NAMES = {
+        "IOCL": "Indian Oil Corporation Ltd.", "IOC": "Indian Oil Corporation Ltd.",
+        "BPCL": "Bharat Petroleum Corporation Ltd.", "HPCL": "Hindustan Petroleum Corporation Ltd.",
+        "NAYARA": "Nayara Energy Ltd.", "JIO-BP": "Jio-bp", "SHELL": "Shell India Markets Pvt. Ltd.",
+    }
 
     class Meta:
         ordering = ["name"]
@@ -164,6 +178,11 @@ class Outlet(TenantOwnedModel):
 
     def __str__(self):
         return f"{self.name} ({self.code})"
+
+    @property
+    def oil_company_full_name(self):
+        """'BPCL' -> 'Bharat Petroleum Corporation Ltd.' for the bill heading; other names are shown as typed."""
+        return self.OIL_COMPANY_NAMES.get(self.oil_company.strip().upper(), self.oil_company.strip())
 
     def get_setup_url(self):
         return reverse("station:outlet_detail", args=[self.pk])

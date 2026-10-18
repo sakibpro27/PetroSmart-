@@ -2,7 +2,8 @@
 
 This guide is for whoever hosts PetroSmart for paying dealers. It assumes an
 Ubuntu 22.04/24.04 server, PostgreSQL, Nginx and Gunicorn. Development on
-Windows is covered in [README.md](README.md).
+Windows is covered in [README.md](README.md). To put a demonstration copy
+online for free, see [FREE_HOSTING.md](FREE_HOSTING.md).
 
 > **Status:** the production settings were checked with
 > `manage.py check --deploy`, `collectstatic`, and a server run with

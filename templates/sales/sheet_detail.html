@@ -64,6 +64,22 @@
           </tr>
         {% endfor %}
       </tbody>
+      <tfoot>
+        {% for p in figures.products %}
+          <tr class="sc-product-total">
+            <th scope="row" colspan="3"><span class="fuel-tag fuel-{{ p.category|lower }}">{{ p.code }}</span> {{ p.name }} total</th>
+            <td class="num">{{ p.delivery|qty }}</td>
+            <td class="num">{{ p.testing|qty }}</td>
+            <td class="num fw-semibold">{{ p.net|qty }}</td>
+            <td></td>
+            <td class="num fw-semibold">{{ p.amount|inr }}</td>
+          </tr>
+        {% endfor %}
+        <tr>
+          <th scope="row" colspan="7">Total (all fuel)</th>
+          <td class="num fw-semibold">{{ figures.total_fuel|inr }}</td>
+        </tr>
+      </tfoot>
     </table>
   </div>
 </section>
@@ -85,6 +101,9 @@
     <section class="sc-box h-100">
       <h2 class="sc-title">Totals</h2>
       <dl class="sc-totals mb-0">
+        {% for p in figures.products %}
+          <dt class="sc-sub">{{ p.code }} sale <span class="small text-muted">({{ p.net|qty }} L)</span></dt><dd>{{ p.amount|inr }}</dd>
+        {% endfor %}
         <dt>Total Fuel (Rs)</dt><dd>{{ figures.total_fuel|inr }}</dd>
         <dt>Lube / Oil Sale</dt><dd>{{ figures.lube|inr }}</dd>
         <dt>Customer Receipt</dt><dd>{{ figures.customer_receipts|inr }}</dd>
@@ -110,7 +129,18 @@
   <div class="row g-3 mb-3">
     {% if lube_sales %}<div class="col-md-6"><section class="sc-box h-100"><h2 class="sc-title">Lube / Oil Sale</h2><table class="table table-sm mb-0"><tbody>{% for m in lube_sales %}<tr><td>{{ m.item }}</td><td class="num">{{ m.quantity|qty }} × {{ m.rate }}</td><td class="num">{{ m.amount|inr }}</td></tr>{% endfor %}</tbody></table></section></div>{% endif %}
     {% if receipts %}<div class="col-md-6"><section class="sc-box h-100"><h2 class="sc-title">Customer Receipt</h2><table class="table table-sm mb-0"><tbody>{% for r in receipts %}<tr><td><a href="{{ r.customer.get_absolute_url }}">{{ r.customer }}</a>{% if r.reference %} <span class="small text-muted">{{ r.reference }}</span>{% endif %}</td><td class="num">{{ r.amount|inr }}</td></tr>{% endfor %}</tbody></table></section></div>{% endif %}
-    {% if credit_sales %}<div class="col-md-6"><section class="sc-box h-100"><h2 class="sc-title">Credit Sale</h2><table class="table table-sm mb-0"><tbody>{% for c in credit_sales %}<tr><td><a href="{{ c.customer.get_absolute_url }}">{{ c.customer }}</a><span class="small text-muted">{% if c.vehicle_number %} · {{ c.vehicle_number }}{% endif %}{% if c.slip_number %} · slip {{ c.slip_number }}{% endif %}</span></td><td class="num">{{ c.amount|inr }}</td></tr>{% endfor %}</tbody></table></section></div>{% endif %}
+    {% if credit_sales %}<div class="col-12"><section class="sc-box h-100"><h2 class="sc-title">Credit Sale</h2><div class="table-responsive"><table class="table table-sm align-middle mb-0">
+      <thead><tr><th scope="col">Slip</th><th scope="col">Customer</th><th scope="col">Item</th><th scope="col">Vehicle</th><th scope="col" class="num">Qty (L)</th><th scope="col" class="num">Rate</th><th scope="col" class="num">Amount</th><th scope="col">Bill</th></tr></thead>
+      <tbody>{% for c in credit_sales %}<tr>
+        <td class="fw-semibold">{{ c.slip_no }}</td>
+        <td><a href="{{ c.customer.get_absolute_url }}">{{ c.customer }}</a></td>
+        <td>{{ c.product.code|default:"—" }}</td>
+        <td>{{ c.vehicle_number|default:"—" }}</td>
+        <td class="num">{{ c.litres|qty|default:"—" }}</td>
+        <td class="num">{{ c.rate|default:"—" }}</td>
+        <td class="num">{{ c.amount|inr }}</td>
+        <td>{% if c.bill %}<a href="{{ c.bill.get_absolute_url }}">Bill {{ c.bill.bill_no }}</a>{% else %}<span class="text-muted small">Not billed</span>{% endif %}</td>
+      </tr>{% endfor %}</tbody></table></div></section></div>{% endif %}
     {% if expenses %}<div class="col-md-6"><section class="sc-box h-100"><h2 class="sc-title">Exp / Cash by DSM</h2><table class="table table-sm mb-0"><tbody>{% for e in expenses %}<tr><td>{{ e.description }} <span class="small text-muted">{{ e.category }}</span></td><td class="num">{{ e.amount|inr }}</td></tr>{% endfor %}</tbody></table></section></div>{% endif %}
   </div>
 {% endif %}

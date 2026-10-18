@@ -21,9 +21,10 @@ class BusinessProfileForm(AuditedModelForm):
 class OutletForm(TenantModelForm):
     class Meta:
         model = Outlet
-        fields = ["name", "code", "oil_company", "address", "is_active"]
+        fields = ["name", "code", "oil_company", "address", "gstin", "phone", "email", "bill_terms", "is_active"]
         labels = {"is_active": "Outlet active"}
-        widgets = {"address": forms.Textarea(attrs={"rows": 3})}
+        widgets = {"address": forms.Textarea(attrs={"rows": 3}), "bill_terms": forms.Textarea(attrs={
+            "rows": 4, "placeholder": "Goods once sold will not be taken back.\nPayment within 15 days."})}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

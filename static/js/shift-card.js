@@ -31,8 +31,11 @@
 
   function pumpTotals() {
     var totals = { delivery: 0, testing: 0, net: 0, value: 0 }, complete = true, any = false;
+    var byProduct = {};  // MS and HSD shown separately: { MS: {delivery, testing, net, value, complete} }
     table.querySelectorAll(".entry-row").forEach(function (row) {
       any = true;
+      var product = byProduct[row.dataset.product] ||
+        (byProduct[row.dataset.product] = { delivery: 0, testing: 0, net: 0, value: 0, complete: true });
       var extra = document.getElementById(row.dataset.extra);
       var opening = hundredths(row.dataset.opening), price = hundredths(row.dataset.price);
       var closing = hundredths(role(row, "closing").value);
@@ -64,8 +67,26 @@
       extra.querySelector('[data-out="problem"]').textContent = problem;
       if (problem) showExtra(extra, true);
       extra.querySelectorAll("[data-reset-field]").forEach(function (el) { el.hidden = !reset; });
-      if (net === null) complete = false;
-      else { totals.delivery += delivery; totals.testing += testing; totals.net += net; totals.value += amount; }
+      if (net === null) { complete = false; product.complete = false; }
+      else {
+        [totals, product].forEach(function (t) {
+          t.delivery += delivery; t.testing += testing; t.net += net; t.value += amount;
+        });
+      }
+    });
+    Object.keys(byProduct).forEach(function (code) {
+      var t = byProduct[code], ok = t.complete;
+      var row = table.querySelector('[data-product-total="' + code + '"]');
+      if (row) {
+        ["delivery", "testing", "net"].forEach(function (key) {
+          row.querySelector('[data-ptotal="' + key + '"]').textContent = ok ? format(t[key]) : "—";
+        });
+        row.querySelector('[data-ptotal="value"]').textContent = ok ? rupees(t.value) : "—";
+      }
+      var sum = form.querySelector('[data-psum="' + code + '"]');
+      if (sum) sum.textContent = ok ? rupees(t.value) : "—";
+      var litres = form.querySelector('[data-psum-litres="' + code + '"]');
+      if (litres) litres.textContent = ok ? "(" + format(t.net) + " L)" : "";
     });
     ["delivery", "testing", "net"].forEach(function (key) {
       table.querySelector('[data-total="' + key + '"]').textContent = complete && any ? format(totals[key]) : "—";
@@ -174,6 +195,29 @@
       var rate = select.closest("tr").querySelector("[data-rate]");
       if (rate && !rate.value && prices[select.value]) rate.value = prices[select.value];
     }
+  });
+
+  // Credit slips: typing the amount fills the litres, typing the litres fills the amount,
+  // at the selling price of the chosen item on this card. The server works these out again.
+  var creditEl = document.getElementById("credit-prices");
+  var creditPrices = creditEl ? JSON.parse(creditEl.textContent) : {};
+  form.addEventListener("input", function (event) {
+    var input = event.target;
+    var amountTyped = input.matches("[data-credit-amount]"), litresTyped = input.matches("[data-credit-litres]");
+    if (!amountTyped && !litresTyped) return;
+    var row = input.closest("tr");
+    var rate = hundredths(creditPrices[row.querySelector("[data-credit-product]").value] || "");
+    if (!rate) return;
+    var amount = row.querySelector("[data-credit-amount]"), litres = row.querySelector("[data-credit-litres]");
+    var typed = hundredths(input.value);
+    if (typed === null) return;
+    if (amountTyped) litres.value = (Math.round((typed * 100) / rate) / 100).toFixed(2);
+    else amount.value = (Math.round((typed * rate) / 100) / 100).toFixed(2);
+  });
+  form.addEventListener("change", function (event) {
+    if (!event.target.matches("[data-credit-product]")) return;
+    var amount = event.target.closest("tr").querySelector("[data-credit-amount]");
+    if (amount.value) amount.dispatchEvent(new Event("input", { bubbles: true }));
   });
 
   if (table) {

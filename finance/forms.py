@@ -123,3 +123,32 @@ class PeriodFilterForm(BootstrapFormMixin, forms.Form):
         if self.is_bound and self.is_valid():
             return self.cleaned_data["date_from"], self.cleaned_data["date_to"], self.cleaned_data["outlet"]
         return self.fields["date_from"].initial, self.fields["date_to"].initial, None
+
+
+class BillForm(BootstrapFormMixin, forms.Form):
+    """Make a credit bill: which outlet's slips, and up to which date."""
+
+    outlet = forms.ModelChoiceField(queryset=None, empty_label=None)
+    bill_date = forms.DateField(label="Bill up to (date)", widget=DATE_INPUT,
+                                help_text="Every unbilled slip up to this date goes on the bill.")
+
+    def __init__(self, *args, user, **kwargs):
+        super().__init__(*args, **kwargs)
+        today = timezone.localdate()
+        self.fields["outlet"].queryset = user.accessible_outlets()
+        self.fields["bill_date"].initial = today
+        self.fields["bill_date"].widget.attrs["max"] = today.isoformat()
+
+
+class BillCancelForm(BootstrapFormMixin, forms.Form):
+    reason = forms.CharField(max_length=255, label="Reason for cancelling")
+
+
+class BillFilterForm(BootstrapFormMixin, forms.Form):
+    customer = forms.ModelChoiceField(queryset=None, required=False, empty_label="All customers")
+    outlet = forms.ModelChoiceField(queryset=None, required=False, empty_label="All outlets")
+
+    def __init__(self, *args, business, outlets, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["customer"].queryset = CreditCustomer.objects.for_business(business)
+        self.fields["outlet"].queryset = outlets

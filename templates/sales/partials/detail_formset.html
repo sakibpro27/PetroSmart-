@@ -16,7 +16,7 @@
         {% for form in formset %}
           <tr class="{% if form.errors %}has-error{% endif %}">
             {% for field in form.visible_fields %}
-              <td><label class="visually-hidden" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% include "partials/field_feedback.html" %}</td>
+              <td>{% if forloop.first %}{% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}{% endif %}<label class="visually-hidden" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% include "partials/field_feedback.html" %}</td>
             {% endfor %}
             <td class="text-end"><button type="button" class="btn btn-sm btn-outline-secondary" data-clear-row title="Clear this row" aria-label="Clear this row"><i class="bi bi-x-lg" aria-hidden="true"></i></button></td>
           </tr>
@@ -27,7 +27,7 @@
   <template data-empty-row>
     <tr>
       {% for field in formset.empty_form.visible_fields %}
-        <td><label class="visually-hidden" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}</td>
+        <td>{% if forloop.first %}{% for hidden in formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}{% endif %}<label class="visually-hidden" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}</td>
       {% endfor %}
       <td class="text-end"><button type="button" class="btn btn-sm btn-outline-secondary" data-clear-row title="Clear this row" aria-label="Clear this row"><i class="bi bi-x-lg" aria-hidden="true"></i></button></td>
     </tr>

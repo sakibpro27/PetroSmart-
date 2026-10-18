@@ -15,7 +15,7 @@ reading history consistent:
    reading and keeps the old and new values.
 """
 
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
@@ -130,6 +130,31 @@ def nozzle_rows(dispenser, day, shift):
 # --- Money ---------------------------------------------------------------------------
 
 
+def product_totals(sheet):
+    """
+    MS and HSD shown separately: for each product on the card, the Sale Ltr
+    (total delivery), testing litres, Net Ltr (customer sales) and Sale Rs.
+    MS (petrol) first, then HSD.
+    """
+    rows = (sheet.lines.values("product__code", "product__name", "product__category")
+            .annotate(delivery=Sum("total_delivery"), testing=Sum("testing_litres"),
+                      net=Sum("net_sales_litres"), amount=Sum("sales_value"))
+            .order_by("-product__category", "product__code"))
+    return [{"code": r["product__code"], "name": r["product__name"], "category": r["product__category"],
+             "delivery": r["delivery"] or ZERO, "testing": r["testing"] or ZERO,
+             "net": r["net"] or ZERO, "amount": r["amount"] or ZERO} for r in rows]
+
+
+def category_split(products):
+    """[MS, HSD] totals (net litres and amount) from product_totals(); None where the card has none."""
+    split = []
+    for category in ("MS", "HSD"):
+        rows = [p for p in products if p["category"] == category]
+        split.append({"net": sum((p["net"] for p in rows), ZERO), "amount": sum((p["amount"] for p in rows), ZERO)}
+                     if rows else None)
+    return split
+
+
 def card_figures(sheet):
     """
     The right-hand panel of the card.
@@ -148,13 +173,60 @@ def card_figures(sheet):
     expected = (fuel + lube + receipts - credit - sheet.general_credit - sheet.bank_card - sheet.company_card
                 - sheet.phone_wallet - expenses)
     return {
-        "total_fuel": fuel, "lube": lube, "customer_receipts": receipts, "cash_collection": cash, "credit": credit,
+        "products": product_totals(sheet), "total_fuel": fuel, "lube": lube, "customer_receipts": receipts, "cash_collection": cash, "credit": credit,
         "general_credit": sheet.general_credit, "bank_card": sheet.bank_card, "company_card": sheet.company_card,
         "phone_wallet": sheet.phone_wallet, "expenses": expenses, "expected_cash": expected, "balance": cash - expected,
     }
 
 
 # --- Saving a card --------------------------------------------------------------------
+
+
+def save_credit_slips(sheet, outlet, day, credits):
+    """
+    Save the card's credit slips, keeping each existing slip's number.
+
+    credits: [{"id": existing slip pk or None, "customer", "product", "litres", "amount", "vehicle_number"}]
+    The amount is what the slip is written for. If only litres are given,
+    amount = litres x rate. Litres are then always amount / rate, at the
+    outlet's selling price for the product on the card's date.
+    New slips get the next number in the outlet's series. A slip on an issued
+    bill cannot be changed or removed.
+    """
+    from finance.models import CreditSale, litres_for, next_number
+
+    existing = {sale.pk: sale for sale in sheet.credit_sales.select_related("bill")}
+    kept, locked_outlet = set(), False
+    for row in credits:
+        product = row["product"]
+        price = FuelPrice.price_on(outlet, product, day)
+        if price is None:
+            raise ValidationError(f"No selling price is set at {outlet.code} for {product.name} on {day:%d %b %Y}.")
+        rate = price.price_per_litre
+        amount = row["amount"] or (row["litres"] * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        values = {"customer": row["customer"], "product": product, "rate": rate, "amount": amount,
+                  "litres": litres_for(amount, rate), "vehicle_number": row["vehicle_number"]}
+        sale = existing.get(row.get("id"))
+        if sale is None or sale.pk in kept:
+            if not locked_outlet:  # one slip series per outlet: hold the outlet while numbering
+                Outlet.objects.select_for_update().get(pk=outlet.pk)
+                locked_outlet = True
+            sale = CreditSale(business=sheet.business, sheet=sheet, outlet=outlet,
+                              slip_no=next_number(CreditSale.objects.filter(outlet=outlet), "slip_no"))
+        elif sale.bill_id and any(getattr(sale, name) != value for name, value in values.items()):
+            raise ValidationError(f"Slip {sale.slip_no} is on bill {sale.bill.bill_no}. "
+                                  "Cancel that bill before changing the slip.")
+        for name, value in values.items():
+            setattr(sale, name, value)
+        sale.full_clean()
+        sale.save()
+        kept.add(sale.pk)
+    for sale in existing.values():
+        if sale.pk not in kept:
+            if sale.bill_id:
+                raise ValidationError(f"Slip {sale.slip_no} is on bill {sale.bill.bill_no} and cannot be removed. "
+                                      "Cancel that bill first.")
+            sale.delete()
 
 
 @transaction.atomic
@@ -164,14 +236,14 @@ def save_card(*, user, header, rows, credits=(), receipts=(), lubes=(), expenses
 
     header:   cleaned CardHeaderForm data (business_date, shift, dispenser, employee, money fields...)
     rows:     [{"nozzle": Nozzle, "closing_reading": ..., "testing_litres": ..., ...}]
-    credits:  [(customer, amount, vehicle_number, slip_number)]
+    credits:  [{"id", "customer", "product", "litres", "amount", "vehicle_number"}] (see save_credit_slips)
     receipts: [(customer, amount, reference)]
     lubes:    [(item, quantity, rate)]
     expenses: [(category, description, amount)]
     Returns (sheet, warnings).
     """
     # Imported here to avoid import cycles: these apps build on sales.
-    from finance.models import CreditSale, CustomerPayment, Expense, cash_method
+    from finance.models import CustomerPayment, Expense, cash_method
     from operations.models import StockMovement
 
     is_new = sheet is None
@@ -236,14 +308,12 @@ def save_card(*, user, header, rows, credits=(), receipts=(), lubes=(), expenses
 
     # Linked records are replaced as a whole on every save.
     if not is_new:
-        sheet.credit_sales.all().delete()
         sheet.customer_receipts.all().delete()
         sheet.dsm_expenses.all().delete()
         sheet.lube_sales.all().delete()
 
-    for customer, amount, vehicle, slip in credits:
-        CreditSale.objects.create(business=sheet.business, sheet=sheet, customer=customer, amount=amount,
-                                  vehicle_number=vehicle, slip_number=slip)
+    # Credit slips are updated in place so they keep their slip numbers.
+    save_credit_slips(sheet, outlet, day, credits)
     cash = cash_method(sheet.business) if (receipts or expenses) else None
     for customer, amount, reference in receipts:
         CustomerPayment.objects.create(business=sheet.business, customer=customer, outlet=outlet, received_on=day,
@@ -266,17 +336,17 @@ def save_card(*, user, header, rows, credits=(), receipts=(), lubes=(), expenses
                                paid_to=str(sheet.employee or ""), entered_by=user, sheet=sheet)
 
     after = card_figures(sheet)
-    summary = {key: f"{value:.2f}" for key, value in after.items()}
+    summary = {key: f"{value:.2f}" for key, value in after.items() if key != "products"}
     if is_new:
         AuditLog.record(AuditLog.Action.CREATE, f"Saved shift card {sheet}", user=user, obj=sheet,
                         changes=summary, request=request)
     else:
-        changed = {key: {"from": f"{before[key]:.2f}", "to": summary[key]} for key in after if before[key] != after[key]}
+        changed = {key: {"from": f"{before[key]:.2f}", "to": summary[key]} for key in summary if before[key] != after[key]}
         AuditLog.record(AuditLog.Action.UPDATE, f"Edited shift card {sheet}", user=user, obj=sheet,
                         changes=changed, request=request)
 
     warnings = [f"{c.name} is now over their credit limit of ₹{c.credit_limit}."
-                for c in {customer for customer, *_ in credits}
+                for c in {row["customer"] for row in credits}
                 if c.credit_limit is not None and c.balance() > c.credit_limit]
     return sheet, warnings
 
@@ -288,7 +358,11 @@ def delete_card(sheet, *, user, request=None):
     reason = change_block_reason(sheet)
     if reason:
         raise ValidationError(reason.replace("Use Correct instead.", "It cannot be deleted."))
-    snapshot = {key: f"{value:.2f}" for key, value in card_figures(sheet).items()}
+    billed = sheet.credit_sales.filter(bill__isnull=False).select_related("bill").first()
+    if billed:
+        raise ValidationError(f"Slip {billed.slip_no} on this card is on bill {billed.bill.bill_no}. "
+                              "Cancel that bill before deleting the card.")
+    snapshot = {key: f"{value:.2f}" for key, value in card_figures(sheet).items() if key != "products"}
     snapshot["readings"] = {line.nozzle.code: [str(line.opening_reading), str(line.closing_reading), str(line.testing_litres)]
                             for line in sheet.lines.select_related("nozzle")}
     AuditLog.record(AuditLog.Action.DELETE, f"Deleted shift card {sheet}", user=user, obj=sheet,

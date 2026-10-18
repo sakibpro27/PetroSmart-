@@ -1,0 +1,28 @@
+{# One invoice row and its hidden "received" row. Used for saved rows and for the "Add new" template. #}
+<tbody class="pf-line{% if line.errors %} has-error{% endif %}" data-line>
+  <tr>
+    <td class="pf-item">
+      <label class="visually-hidden" for="{{ line.product.id_for_label }}">Item name</label>{{ line.product }}
+    </td>
+    {% for field in line %}{% if field.name in "quantity_kl rate_per_kl delivery_charges vat cess tcs" %}
+      <td class="pf-num"><label class="visually-hidden" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}</td>
+    {% endif %}{% endfor %}
+    <td class="num fw-semibold" data-out="line-total">—</td>
+    <td class="pf-tank"><label class="visually-hidden" for="{{ line.tank.id_for_label }}">Tank</label>{{ line.tank }}</td>
+    <td class="text-center text-nowrap">
+      <button type="button" class="btn btn-sm pf-icon pf-delete" data-delete-line title="Remove this row" aria-label="Remove this row"><i class="bi bi-trash-fill" aria-hidden="true"></i></button>
+      <button type="button" class="btn btn-sm pf-icon pf-info" data-info-line title="Litres actually received" aria-label="Litres actually received" aria-expanded="false"><i class="bi bi-info-circle-fill" aria-hidden="true"></i></button>
+    </td>
+  </tr>
+  <tr class="pf-extra" data-line-extra {% if not line.received_litres.value and not line.errors %}hidden{% endif %}>
+    <td colspan="10">
+      {% for error in line.non_field_errors %}<div class="errorlist"><i class="bi bi-exclamation-circle" aria-hidden="true"></i> {{ error }}</div>{% endfor %}
+      {% for field in line %}{% for error in field.errors %}<div class="errorlist"><i class="bi bi-exclamation-circle" aria-hidden="true"></i> {{ field.label }}: {{ error }}</div>{% endfor %}{% endfor %}
+      <div class="d-flex flex-wrap align-items-center gap-2">
+        <label class="small fw-medium" for="{{ line.received_litres.id_for_label }}">{{ line.received_litres.label }} (L)</label>
+        <div style="max-width: 11rem">{{ line.received_litres }}</div>
+        <span class="small text-muted">{{ line.received_litres.help_text }} Invoiced: <span data-out="invoiced-litres">—</span> L</span>
+      </div>
+    </td>
+  </tr>
+</tbody>

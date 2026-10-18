@@ -16,9 +16,9 @@ from sales.services import viewable_outlets
 from tenants.permissions import BusinessMemberRequiredMixin, DealerRequiredMixin
 
 from . import services
-from station.models import FuelProduct
+from station.models import FuelProduct, Tank
 
-from .forms import AllocationFormSet, ProductLineFormSet, PurchaseFilterForm, PurchaseForm, SupplierForm
+from .forms import PurchaseFilterForm, PurchaseForm, PurchaseLineFormSet, SupplierForm
 from .models import Supplier
 
 # --- Suppliers (Dealer only) --------------------------------------------------
@@ -97,6 +97,8 @@ class PurchaseListView(BusinessMemberRequiredMixin, ListView):
 
 
 class PurchaseFormView(BusinessMemberRequiredMixin, View):
+    """The purchase invoice: header, one row per item and tank, totals and remark."""
+
     template_name = "purchases/purchase_form.html"
 
     @cached_property
@@ -105,28 +107,36 @@ class PurchaseFormView(BusinessMemberRequiredMixin, View):
             return None
         return get_object_or_404(services.purchases_for(self.request.user), pk=self.kwargs["pk"])
 
+    def _initial_lines(self):
+        user = self.request.user
+        if self.purchase is not None:
+            return [{"product": l.product, "tank": l.tank, "quantity_kl": l.quantity_kl, "rate_per_kl": l.rate_per_kl,
+                     "delivery_charges": l.delivery_charges, "vat": l.vat, "cess": l.cess, "tcs": l.tcs,
+                     "received_litres": l.received_litres}
+                    for l in self.purchase.lines.select_related("product", "tank")]
+        # New invoice: one row per product, with the tank filled in when the outlet has only one for it.
+        outlets = user.accessible_outlets()
+        tanks = Tank.objects.for_business(user.business).filter(outlet__in=outlets, is_active=True)
+        rows = []
+        for product in (FuelProduct.objects.for_business(user.business).filter(is_active=True)
+                        .order_by("-category", "code")):  # MS (petrol) first, then HSD
+            product_tanks = [t for t in tanks if t.product_id == product.pk]
+            rows.append({"product": product, "tank": product_tanks[0] if len(product_tanks) == 1 else None})
+        return rows
+
     def _forms(self, data=None):
         user = self.request.user
-        tanks_initial = lines_initial = None
-        if data is None:
-            if self.purchase is not None:
-                tanks_initial = [{"tank": r.tank, "litres": r.litres} for r in self.purchase.receipts.select_related("tank")]
-                lines_initial = [{"product": l.product, "invoiced_litres": l.invoiced_litres, "purchase_rate": l.purchase_rate}
-                                 for l in self.purchase.lines.select_related("product")]
-            else:
-                # New invoice: one row each for MS and HSD, ready to fill (leave a row empty if not delivered).
-                lines_initial = [{"product": p} for p in
-                                 FuelProduct.objects.for_business(user.business).filter(is_active=True)
-                                 .order_by("-category", "code")]  # MS (petrol) first, then HSD
         return (
             PurchaseForm(data, instance=self.purchase, user=user, prefix="purchase"),
-            ProductLineFormSet(data, initial=lines_initial, prefix="lines", form_kwargs={"user": user}),
-            AllocationFormSet(data, initial=tanks_initial, prefix="tanks", form_kwargs={"user": user}),
+            PurchaseLineFormSet(data, initial=None if data else self._initial_lines(), prefix="lines",
+                                form_kwargs={"user": user}),
         )
 
-    def _render(self, form, lines, formset):
+    def _render(self, form, lines):
+        tanks = {str(t.pk): {"outlet": str(t.outlet_id), "product": str(t.product_id)}
+                 for t in lines.empty_form.fields["tank"].queryset}
         return render(self.request, self.template_name,
-                      {"form": form, "lines": lines, "formset": formset, "purchase": self.purchase})
+                      {"form": form, "lines": lines, "purchase": self.purchase, "tank_map": tanks})
 
     def get(self, request, *args, **kwargs):
         if self.purchase is not None and services.is_locked(self.purchase):
@@ -135,20 +145,18 @@ class PurchaseFormView(BusinessMemberRequiredMixin, View):
         return self._render(*self._forms())
 
     def post(self, request, *args, **kwargs):
-        form, lines, formset = self._forms(request.POST)
-        if not (form.is_valid() and lines.is_valid() and formset.is_valid()):
-            return self._render(form, lines, formset)
-        products = [(f.cleaned_data["product"], f.cleaned_data["invoiced_litres"], f.cleaned_data["purchase_rate"])
-                    for f in lines.forms if f.cleaned_data.get("product")]
-        allocations = [(f.cleaned_data["tank"], f.cleaned_data["litres"]) for f in formset.forms
-                       if f.cleaned_data.get("tank")]
+        form, lines = self._forms(request.POST)
+        if not (form.is_valid() and lines.is_valid()):
+            return self._render(form, lines)
+        values = [v for v in (f.line_values() for f in lines.forms) if v]
         try:
-            purchase = services.save_purchase(form, products, allocations, user=request.user, request=request)
+            purchase = services.save_purchase(form, values, user=request.user, request=request)
         except ValidationError as error:
             for message in error.messages:
                 form.add_error(None, message)
-            return self._render(form, lines, formset)
-        messages.success(request, f"{purchase} saved. The received litres are now in tank stock.")
+            return self._render(form, lines)
+        messages.success(request, f"{purchase} saved: {purchase.invoice_amount:,.2f}. "
+                                  "The received litres are now in tank stock.")
         return redirect(purchase)
 
 
@@ -162,13 +170,16 @@ class PurchaseDetailView(BusinessMemberRequiredMixin, DetailView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         purchase = self.object
-        received = services.received_litres(purchase)
-        invoiced = purchase.total_invoiced_litres
+        lines = list(purchase.lines.select_related("product", "tank"))
+        invoiced = sum((line.invoiced_litres for line in lines), Decimal("0"))
+        received = sum((line.received for line in lines), Decimal("0"))
         context.update(
+            lines=lines,
             invoiced=invoiced,
             received=received,
             difference=received - invoiced,
-            products=services.product_comparison(purchase),
+            totals={name: sum((getattr(line, name) for line in lines), Decimal("0"))
+                    for name in ("base_amount", "delivery_charges", "vat", "cess", "tcs", "total")},
             comparison=services.stock_comparison(purchase),
             locked=services.is_locked(purchase),
             can_change=self.request.user.accessible_outlets().filter(pk=purchase.outlet_id).exists(),

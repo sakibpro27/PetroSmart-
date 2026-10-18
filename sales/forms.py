@@ -175,16 +175,45 @@ class _DetailRowForm(BootstrapFormMixin, forms.Form):
 
 
 class CreditRowForm(_DetailRowForm):
-    customer = forms.ModelChoiceField(queryset=None)
-    amount = forms.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"))
+    """
+    One credit slip. Enter the amount or the litres; the other is worked out
+    from the day's selling price. The slip number is given automatically when
+    the card is saved and cannot be typed.
+    """
+
+    id = forms.IntegerField(required=False, widget=forms.HiddenInput)
+    slip_no = forms.CharField(required=False, disabled=True, label="Slip no.")
+    customer = forms.ModelChoiceField(queryset=None, required=False)
+    product = forms.ModelChoiceField(queryset=None, required=False, label="Item")
+    litres = forms.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"), required=False,
+                                label="Qty (L)")
+    amount = forms.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"), required=False)
     vehicle_number = forms.CharField(max_length=20, required=False, label="Vehicle")
-    slip_number = forms.CharField(max_length=40, required=False, label="Slip no.")
 
     def __init__(self, *args, business, **kwargs):
         from finance.models import CreditCustomer
 
         super().__init__(*args, business=business, **kwargs)
         self.fields["customer"].queryset = CreditCustomer.objects.for_business(business).filter(is_active=True)
+        self.fields["product"].queryset = FuelProduct.objects.for_business(business).filter(is_active=True)
+        self.fields["slip_no"].widget.attrs.update({"placeholder": "Auto", "class": "form-control sc-slip",
+                                                    "tabindex": "-1"})
+        self.fields["litres"].widget.attrs.pop("data-sum", None)
+        self.fields["litres"].widget.attrs["data-credit-litres"] = "1"
+        self.fields["amount"].widget.attrs["data-credit-amount"] = "1"
+        self.fields["product"].widget.attrs["data-credit-product"] = "1"
+
+    def clean(self):
+        cleaned = super().clean()
+        if not any(cleaned.get(name) for name in ("customer", "product", "litres", "amount", "vehicle_number")):
+            return {}  # cleared or never filled: no slip (an existing slip in this row is removed)
+        if not cleaned.get("customer"):
+            self.add_error("customer", "Choose the customer.")
+        if not cleaned.get("product"):
+            self.add_error("product", "Choose the item.")
+        if not cleaned.get("amount") and not cleaned.get("litres"):
+            self.add_error("amount", "Enter the amount or the litres.")
+        return cleaned
 
 
 class ReceiptRowForm(_DetailRowForm):

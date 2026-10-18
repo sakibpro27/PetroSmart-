@@ -36,22 +36,33 @@
 </div>
 
 <div class="card table-card mb-4">
-  <div class="card-header">Products on this invoice</div>
+  <div class="card-header">Invoice rows</div>
   <div class="table-responsive">
-    <table class="table align-middle">
-      <thead><tr><th scope="col">Product</th><th scope="col" class="num">Invoiced (L)</th><th scope="col" class="num">Rate (₹/L)</th><th scope="col" class="num">Litres × rate</th><th scope="col" class="num">Received into tanks (L)</th><th scope="col" class="num">Difference (L)</th></tr></thead>
+    <table class="table table-bordered align-middle">
+      <thead><tr><th scope="col">Item name</th><th scope="col" class="num">Quantity (KL)</th><th scope="col" class="num">Rate (₹/KL)</th><th scope="col" class="num">Amount</th><th scope="col" class="num">Dly taxable charges</th><th scope="col" class="num">VAT</th><th scope="col" class="num">Cess</th><th scope="col" class="num">TCS</th><th scope="col" class="num">Total</th><th scope="col">Tank</th><th scope="col" class="num">Received (L)</th><th scope="col" class="num">Difference (L)</th></tr></thead>
       <tbody>
-        {% for row in products %}
+        {% for line in lines %}
           <tr>
-            <td><span class="fuel-tag fuel-{{ row.line.product.category|lower }}">{{ row.line.product.code }}</span> {{ row.line.product.name }}</td>
-            <td class="num">{{ row.line.invoiced_litres|qty }}</td>
-            <td class="num">{{ row.line.purchase_rate }}</td>
-            <td class="num">{{ row.line.base_amount|inr }}</td>
-            <td class="num">{{ row.received|qty }}</td>
-            <td class="num">{% if row.difference < 0 %}<span class="status status-danger">Short {{ row.difference|qty }}</span>{% elif row.difference > 0 %}<span class="status status-warning">Excess {{ row.difference|qty }}</span>{% else %}0.00{% endif %}</td>
+            <td class="fw-semibold"><span class="fuel-tag fuel-{{ line.product.category|lower }}">{{ line.product.code }}</span> {{ line.product.name }}</td>
+            <td class="num">{{ line.quantity_kl }}</td>
+            <td class="num">{{ line.rate_per_kl|qty }}</td>
+            <td class="num">{{ line.base_amount|qty }}</td>
+            <td class="num">{{ line.delivery_charges|qty }}</td>
+            <td class="num">{{ line.vat|qty }}</td>
+            <td class="num">{{ line.cess|qty }}</td>
+            <td class="num">{{ line.tcs|qty }}</td>
+            <td class="num fw-semibold">{{ line.total|inr }}</td>
+            <td>{{ line.tank.code }}</td>
+            <td class="num">{{ line.received|qty }}</td>
+            <td class="num">{% if line.difference < 0 %}<span class="status status-danger">Short {{ line.difference|qty }}</span>{% elif line.difference > 0 %}<span class="status status-warning">Excess {{ line.difference|qty }}</span>{% else %}0.00{% endif %}</td>
           </tr>
         {% endfor %}
       </tbody>
+      <tfoot>
+        <tr><th scope="row" colspan="3">Total</th><td class="num">{{ totals.base_amount|qty }}</td><td class="num">{{ totals.delivery_charges|qty }}</td><td class="num">{{ totals.vat|qty }}</td><td class="num">{{ totals.cess|qty }}</td><td class="num">{{ totals.tcs|qty }}</td><td class="num fw-semibold">{{ totals.total|inr }}</td><td></td><td class="num">{{ received|qty }}</td><td class="num">{{ difference|qty }}</td></tr>
+        <tr><th scope="row" colspan="8" class="text-end fw-normal">Round off</th><td class="num">{{ purchase.round_off|inr }}</td><td colspan="3"></td></tr>
+        <tr><th scope="row" colspan="8" class="text-end">Invoice amount</th><td class="num fw-bold">{{ purchase.invoice_amount|inr }}</td><td colspan="3"></td></tr>
+      </tfoot>
     </table>
   </div>
 </div>
@@ -64,11 +75,10 @@
         <dl class="detail-list">
           <dt>Invoice date</dt><dd>{{ purchase.invoice_date|date:"d M Y" }}</dd>
           <dt>Delivered on</dt><dd>{{ purchase.delivery_date|date:"d M Y" }}</dd>
-          <dt>Litres × rate</dt><dd>{{ purchase.base_amount|inr }}</dd>
-          <dt>Other charges / taxes</dt><dd>{{ purchase.other_charges|inr }} <span class="small text-muted">(invoice amount − litres × rate, for information)</span></dd>
-          <dt>Tanker</dt><dd>{{ purchase.tanker_number|default:"—" }}</dd>
+          <dt>Company</dt><dd>{{ purchase.supplier.name }}</dd>
+          <dt>Vehicle no.</dt><dd>{{ purchase.tanker_number|default:"—" }}</dd>
           <dt>Entered by</dt><dd>{{ purchase.entered_by.get_full_name|default:purchase.entered_by.username }} · {{ purchase.created_at|date:"d M Y, H:i" }}</dd>
-          {% if purchase.notes %}<dt>Notes</dt><dd>{{ purchase.notes|linebreaksbr }}</dd>{% endif %}
+          {% if purchase.notes %}<dt>Remark</dt><dd>{{ purchase.notes|linebreaksbr }}</dd>{% endif %}
         </dl>
       </div>
     </div>

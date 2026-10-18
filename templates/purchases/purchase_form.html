@@ -1,68 +1,90 @@
 {% extends "layouts/app.html" %}
-{% block title %}{% if purchase %}Edit fuel purchase{% else %}Record fuel purchase{% endif %}{% endblock %}
-{% block breadcrumb %}{{ business.name }} / <a href="{% url 'purchases:purchase_list' %}">Fuel purchases</a>{% endblock %}
+{% load static %}
+{% block title %}{% if purchase %}Edit fuel purchase{% else %}Purchase (Fuel){% endif %}{% endblock %}
+{% block breadcrumb %}{{ business.name }} / <a href="{% url 'purchases:purchase_list' %}">Fuel purchases</a>{% if purchase %} / {{ purchase.invoice_number }}{% endif %}{% endblock %}
 
 {% block content %}
-<div class="page-header">
-  <div>
-    <h1>{% if purchase %}Edit fuel purchase{% else %}Record fuel purchase{% endif %}</h1>
-    <p class="subtitle">Enter the invoice as printed, then the litres actually unloaded into each tank.</p>
-  </div>
-</div>
-
-<form method="post">
+<form method="post" novalidate data-purchase-form>
   {% csrf_token %}
   {% if form.non_field_errors %}
     <div class="alert alert-danger" role="alert"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i><div>{% for error in form.non_field_errors %}<div>{{ error }}</div>{% endfor %}</div></div>
   {% endif %}
 
-  <div class="card form-card mb-3">
-    <div class="card-header">Invoice</div>
-    <div class="card-body">
-      <div class="row gx-3">
-        {% for field in form.visible_fields %}
-          <div class="{% if field.widget_type == 'textarea' %}col-12{% else %}col-md-6 col-lg-4{% endif %}">{% include "partials/form_field.html" with field=field %}</div>
-        {% endfor %}
+  <section class="sc-box mb-3">
+    <h1 class="sc-title">Purchase (Fuel){% if purchase %} <span class="sc-title-sub">Invoice {{ purchase.invoice_number }}</span>{% endif %}</h1>
+
+    {# --- Invoice header --- #}
+    <div class="pf-header">
+      <div class="pf-outlet{% if form.outlet.field.queryset.count == 1 %} visually-hidden{% endif %}">{% include "partials/form_field.html" with field=form.outlet %}</div>
+      <div class="pf-company">
+        {% include "partials/form_field.html" with field=form.supplier %}
+        {% if user.is_dealer %}<a class="small pf-add-supplier" href="{% url 'purchases:supplier_create' %}">+ New company</a>{% endif %}
       </div>
-      <p class="small text-muted mb-0">The invoice amount is stored as printed. PetroSmart does not calculate taxes.</p>
+      <div>{% include "partials/form_field.html" with field=form.invoice_number %}</div>
+      <div>{% include "partials/form_field.html" with field=form.invoice_date %}</div>
+      <div>{% include "partials/form_field.html" with field=form.delivery_date %}</div>
+      <div>{% include "partials/form_field.html" with field=form.tanker_number %}</div>
+      <div class="pf-round">{% include "partials/form_field.html" with field=form.round_up %}</div>
     </div>
-  </div>
 
-  <div class="card form-card mb-3">
-    <div class="card-header">Products on this invoice</div>
-    <div class="card-body">
-      {{ lines.management_form }}
-      {% if lines.non_form_errors %}<div class="errorlist mb-2">{{ lines.non_form_errors|join:" " }}</div>{% endif %}
-      <p class="small text-muted">One row per product (MS and HSD can be on the same invoice). Leave quantity and rate empty for a product that was not delivered.</p>
-      {% for line in lines %}
-        {% for error in line.non_field_errors %}<div class="errorlist"><i class="bi bi-exclamation-circle" aria-hidden="true"></i> {{ error }}</div>{% endfor %}
-        <div class="row gx-3">
-          <div class="col-md-4">{% include "partials/form_field.html" with field=line.product %}</div>
-          <div class="col-md-4">{% include "partials/form_field.html" with field=line.invoiced_litres %}</div>
-          <div class="col-md-4">{% include "partials/form_field.html" with field=line.purchase_rate %}</div>
-        </div>
-      {% endfor %}
+    {# --- Invoice rows --- #}
+    {{ lines.management_form }}
+    {% if lines.non_form_errors %}<div class="errorlist mb-2">{{ lines.non_form_errors|join:" " }}</div>{% endif %}
+    <div class="table-responsive">
+      <table class="table table-bordered align-middle pf-table mb-0" data-lines>
+        <thead>
+          <tr>
+            <th scope="col">Item name</th>
+            <th scope="col" class="num">Quantity (KL)</th>
+            <th scope="col" class="num">Rate (₹/KL)</th>
+            <th scope="col" class="num">Dly taxable charges</th>
+            <th scope="col" class="num">VAT</th>
+            <th scope="col" class="num">Cess</th>
+            <th scope="col" class="num">TCS</th>
+            <th scope="col" class="num">Total</th>
+            <th scope="col">Tank</th>
+            <th scope="col" class="text-center">Action</th>
+          </tr>
+        </thead>
+        {% for line in lines %}
+          {% include "purchases/partials/line_rows.html" with line=line %}
+        {% endfor %}
+        <tfoot>
+          <tr>
+            <th scope="row" colspan="7" class="text-end fw-normal">Total of rows</th>
+            <td class="num fw-semibold" data-out="lines-total">—</td>
+            <td colspan="2"></td>
+          </tr>
+          <tr data-round-row>
+            <th scope="row" colspan="7" class="text-end fw-normal">Round off</th>
+            <td class="num" data-out="round-off">—</td>
+            <td colspan="2"></td>
+          </tr>
+          <tr>
+            <th scope="row" colspan="7" class="text-end">Invoice amount</th>
+            <td class="num fw-bold" data-out="invoice-amount" aria-live="polite">—</td>
+            <td colspan="2"></td>
+          </tr>
+        </tfoot>
+      </table>
     </div>
-  </div>
+    <template data-empty-line>{% include "purchases/partials/line_rows.html" with line=lines.empty_form %}</template>
 
-  <div class="card form-card mb-3">
-    <div class="card-header">Litres received into tanks</div>
-    <div class="card-body">
-      {{ formset.management_form }}
-      {% if formset.non_form_errors %}<div class="errorlist mb-2">{{ formset.non_form_errors|join:" " }}</div>{% endif %}
-      <p class="small text-muted">Measured at the outlet when unloading. If the tanker filled two tanks, use one row per tank. Leave unused rows empty.</p>
-      {% for allocation in formset %}
-        {% for error in allocation.non_field_errors %}<div class="errorlist"><i class="bi bi-exclamation-circle" aria-hidden="true"></i> {{ error }}</div>{% endfor %}
-        <div class="row gx-3">
-          <div class="col-md-7">{% include "partials/form_field.html" with field=allocation.tank %}</div>
-          <div class="col-md-5">{% include "partials/form_field.html" with field=allocation.litres %}</div>
-        </div>
-      {% endfor %}
+    <div class="pf-footer">
+      <button type="button" class="btn btn-link px-0 pf-add" data-add-line><i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Add new</button>
+      <div class="pf-remark">
+        <label class="visually-hidden" for="{{ form.notes.id_for_label }}">Remark</label>
+        {{ form.notes }}
+      </div>
     </div>
-    <div class="card-footer form-actions">
-      <a class="btn btn-outline-secondary" href="{% if purchase %}{{ purchase.get_absolute_url }}{% else %}{% url 'purchases:purchase_list' %}{% endif %}">Cancel</a>
-      <button type="submit" class="btn btn-primary" data-busy-text="Saving…">Save purchase</button>
-    </div>
+    <div class="sc-help mt-2">Total = Quantity (KL) × Rate + Dly taxable charges + VAT + Cess + TCS. Type VAT, Cess and TCS as printed on the invoice; PetroSmart does not calculate taxes. Use <i class="bi bi-info-circle-fill" aria-hidden="true"></i> to record litres actually received if the dip after unloading differs from the invoice.</div>
+  </section>
+
+  <div class="sc-buttons">
+    <button type="submit" class="btn btn-primary" data-busy-text="Saving…"><i class="bi bi-save me-1" aria-hidden="true"></i> Save</button>
+    <a class="btn btn-outline-secondary" href="{% if purchase %}{{ purchase.get_absolute_url }}{% else %}{% url 'purchases:purchase_list' %}{% endif %}">Cancel</a>
   </div>
 </form>
 {% endblock %}
+
+{% block extra_js %}{{ tank_map|json_script:"tank-map" }}<script src="{% static 'js/purchase-form.js' %}"></script>{% endblock %}

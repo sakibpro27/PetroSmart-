@@ -63,6 +63,7 @@ class SheetListView(BusinessMemberRequiredMixin, ListView):
         context = super().get_context_data(**kwargs)
         for sheet in context["sheets"]:
             sheet.figures = services.card_figures(sheet)
+            sheet.by_category = services.category_split(sheet.figures["products"])
         context.update(outlets=services.viewable_outlets(self.request.user),
                        selected_outlet=self.request.GET.get("outlet", ""), selected_date=self.request.GET.get("date", ""))
         return context
@@ -92,8 +93,9 @@ class CardFormView(BusinessMemberRequiredMixin, View):
         if s is None:
             return {}
         return {
-            "credit": [{"customer": c.customer, "amount": c.amount, "vehicle_number": c.vehicle_number,
-                        "slip_number": c.slip_number} for c in s.credit_sales.select_related("customer")],
+            "credit": [{"id": c.pk, "slip_no": c.slip_no, "customer": c.customer, "product": c.product,
+                        "litres": c.litres, "amount": c.amount, "vehicle_number": c.vehicle_number}
+                       for c in s.credit_sales.select_related("customer", "product")],
             "receipts": [{"customer": r.customer, "amount": r.amount, "reference": r.reference}
                          for r in s.customer_receipts.select_related("customer")],
             "lubes": [{"item": m.item, "quantity": -m.quantity, "rate": m.unit_price} for m in s.lube_sales.select_related("item")],
@@ -130,8 +132,13 @@ class CardFormView(BusinessMemberRequiredMixin, View):
         return render(self.request, self.template_name, {
             "sheet": self.sheet, "header": header, "nozzles": nozzles, "rows": list(zip(nozzles.forms, rows)),
             "details": details, "load_errors": load_errors,
+            # MS first, then HSD: one subtotal row each under the pump readings.
+            "card_products": sorted({row["nozzle"].product for row in rows},
+                                    key=lambda p: (p.category != "MS", p.code)),
             "money_fields": [(d, header[f"notes_{d}"]) for d in DENOMINATIONS],
             "block_reason": services.change_block_reason(self.sheet) if self.sheet else None,
+            # Selling price per product on this card, so credit slips can show litres for an amount.
+            "credit_prices": {str(row["nozzle"].product_id): str(row["price"]) for row in rows},
             "lube_prices": {str(pk): str(price) for pk, price in
                             ShopItem.objects.for_business(self.request.business).values_list("pk", "selling_price")},
         })
@@ -206,7 +213,7 @@ class CardFormView(BusinessMemberRequiredMixin, View):
         try:
             sheet, warnings = services.save_card(
                 user=user, sheet=self.sheet, header=data, rows=row_data,
-                credits=filled_rows(details["credit"], "customer", "amount", "vehicle_number", "slip_number"),
+                credits=[form.cleaned_data for form in details["credit"].forms if form.cleaned_data],
                 receipts=filled_rows(details["receipts"], "customer", "amount", "reference"),
                 lubes=filled_rows(details["lubes"], "item", "quantity", "rate"),
                 expenses=filled_rows(details["expenses"], "category", "description", "amount"),
@@ -244,7 +251,7 @@ class SheetDetailView(SheetMixin, TemplateView):
             lines=sheet.lines.select_related("nozzle", "product").order_by("nozzle__code"),
             figures=services.card_figures(sheet),
             money_rows=[(d, getattr(sheet, f"notes_{d}"), getattr(sheet, f"notes_{d}") * d) for d in DENOMINATIONS],
-            credit_sales=sheet.credit_sales.select_related("customer"),
+            credit_sales=sheet.credit_sales.select_related("customer", "product", "bill"),
             receipts=sheet.customer_receipts.select_related("customer"),
             lube_sales=[{"item": m.item, "quantity": -m.quantity, "rate": m.unit_price, "amount": m.amount}
                         for m in sheet.lube_sales.select_related("item")],

@@ -15,7 +15,8 @@ class PurchaseLineInline(admin.TabularInline):
     model = PurchaseLine
     extra = 0
     can_delete = False
-    fields = readonly_fields = ("product", "invoiced_litres", "purchase_rate")
+    fields = readonly_fields = ("product", "tank", "invoiced_litres", "rate_per_kl", "delivery_charges", "vat", "cess",
+                                "tcs", "received_litres")
 
     def has_add_permission(self, request, obj=None):
         return False

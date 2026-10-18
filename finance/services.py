@@ -5,7 +5,8 @@ Shift Card (sales app); its credit sales, receipts and expenses are stored
 here so ledgers and reports include them.
 """
 
-from decimal import Decimal
+from datetime import timedelta
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
@@ -15,8 +16,9 @@ from django.utils import timezone
 from audit.models import AuditLog
 from sales.models import DailySalesLine, DailySalesSheet
 from sales.services import viewable_outlets
+from tenants.models import Outlet
 
-from .models import CreditCustomer, CreditSale, CustomerPayment, Expense
+from .models import CreditBill, CreditCustomer, CreditSale, CustomerPayment, Expense, next_number
 
 ZERO = Decimal("0")
 
@@ -51,11 +53,12 @@ def ledger(customer):
     """
     rows = [{"date": customer.opening_balance_date, "kind": "Opening balance", "detail": "",
              "debit": customer.opening_balance, "credit": ZERO, "order": 0}]
-    for sale in customer.credit_sales.select_related("sheet__outlet", "sheet__shift", "sheet__dispenser"):
+    for sale in customer.credit_sales.select_related("sheet__outlet", "sheet__shift", "sheet__dispenser", "product"):
         card = sale.sheet
         rows.append({"date": card.business_date, "kind": "Credit sale",
                      "detail": f"{card.outlet.code} · {card.shift.name}" + (f" · {sale.vehicle_number}" if sale.vehicle_number else "")
-                     + (f" · slip {sale.slip_number}" if sale.slip_number else ""),
+                     + f" · slip {sale.slip_no}"
+                     + (f" · {sale.product.code} {sale.litres} L" if sale.product_id else ""),
                      "debit": sale.amount, "credit": ZERO, "order": 1, "link": card.get_absolute_url()})
     for payment in customer.payments.select_related("method", "sheet"):
         rows.append({"date": payment.received_on, "kind": "Payment received",
@@ -68,6 +71,14 @@ def ledger(customer):
         rows.append({"date": adjustment.adjusted_on, "kind": "Adjustment", "detail": adjustment.reason,
                      "debit": adjustment.amount if adjustment.amount > 0 else ZERO,
                      "credit": -adjustment.amount if adjustment.amount < 0 else ZERO, "order": 3})
+    for bill in customer.bills.filter(status=CreditBill.Status.ISSUED).select_related("outlet"):
+        # The bill adds nothing new except its round off; its slips are already listed above.
+        rows.append({"date": bill.bill_date, "kind": f"Bill {bill.bill_no}",
+                     "detail": f"{bill.outlet.code} · {bill.period_from:%d-%m-%Y} to {bill.bill_date:%d-%m-%Y} · "
+                               f"bill amount ₹{bill.amount:,.2f}" + (" · round off" if bill.round_off else ""),
+                     "debit": bill.round_off if bill.round_off > 0 else ZERO,
+                     "credit": -bill.round_off if bill.round_off < 0 else ZERO, "order": 4,
+                     "link": bill.get_absolute_url()})
     rows.sort(key=lambda row: (row["date"], row["order"]))
     balance = ZERO
     for row in rows:
@@ -112,6 +123,111 @@ def record_adjustment(form, customer, *, user, request=None):
 
 def outstanding_total(business):
     return sum((customer.balance() for customer in CreditCustomer.objects.for_business(business)), ZERO)
+
+
+# --- Credit bills -------------------------------------------------------------------------
+
+
+def bills_for(user):
+    return CreditBill.objects.for_business(user.business).filter(outlet__in=viewable_outlets(user))
+
+
+def unbilled_slips(customer, outlet, up_to):
+    """The customer's credit slips at `outlet` up to `up_to` that are not on an issued bill, oldest first."""
+    return (CreditSale.objects.filter(business=customer.business, customer=customer, outlet=outlet, bill__isnull=True,
+                                      sheet__business_date__lte=up_to)
+            .select_related("sheet", "product").order_by("sheet__business_date", "slip_no"))
+
+
+def last_bill(customer, outlet):
+    return (customer.bills.filter(outlet=outlet, status=CreditBill.Status.ISSUED)
+            .order_by("-bill_date", "-bill_no").first())
+
+
+def bill_preview(customer, outlet, bill_date):
+    """
+    What a bill made now would contain: from the day after the previous bill
+    (or the first unbilled slip, if older) up to `bill_date`.
+    """
+    slips = list(unbilled_slips(customer, outlet, bill_date))
+    previous = last_bill(customer, outlet)
+    if previous is not None:
+        period_from = previous.bill_date + timedelta(days=1)
+    else:
+        period_from = slips[0].sheet.business_date if slips else customer.opening_balance_date
+    if slips:
+        # A card entered late for a day already billed still gets billed, on this bill.
+        period_from = min(period_from, slips[0].sheet.business_date)
+    total = sum((slip.amount for slip in slips), ZERO)
+    round_off = total.quantize(Decimal("1"), rounding=ROUND_HALF_UP) - total
+    return {"slips": slips, "period_from": period_from, "previous": previous, "total": total,
+            "round_off": round_off, "amount": total + round_off}
+
+
+@transaction.atomic
+def create_bill(customer, outlet, bill_date, *, user, request=None):
+    """
+    Bill every unbilled slip of `customer` at `outlet` up to `bill_date`.
+    The bill number is the next in the outlet's series. Previous balance is
+    what the customer owed on the bill date apart from this bill's slips.
+    """
+    _require_outlet(user, outlet)
+    _not_future(bill_date, "A bill")
+    if customer.business_id != user.business_id or outlet.business_id != user.business_id:
+        raise PermissionDenied("This customer or outlet belongs to another business.")
+    Outlet.objects.select_for_update().get(pk=outlet.pk)  # one bill series per outlet
+    preview = bill_preview(customer, outlet, bill_date)
+    previous = preview["previous"]
+    if previous is not None and bill_date < previous.bill_date:
+        raise ValidationError(f"The bill date cannot be before the previous bill (no. {previous.bill_no}, "
+                              f"{previous.bill_date:%d %b %Y}).")
+    if not preview["slips"]:
+        raise ValidationError(f"{customer} has no unbilled credit slips at {outlet.code} up to {bill_date:%d %b %Y}.")
+    bill = CreditBill.objects.create(
+        business=customer.business, outlet=outlet, customer=customer,
+        bill_no=next_number(CreditBill.objects.filter(outlet=outlet), "bill_no"),
+        bill_date=bill_date, period_from=preview["period_from"], slips_total=preview["total"],
+        round_off=preview["round_off"], previous_balance=customer.balance(as_of=bill_date) - preview["total"],
+        created_by=user,
+    )
+    CreditSale.objects.filter(pk__in=[slip.pk for slip in preview["slips"]]).update(bill=bill)
+    AuditLog.record(AuditLog.Action.CREATE, f"Credit bill {bill.bill_no} to {customer} for ₹{bill.amount}", user=user,
+                    obj=bill, request=request,
+                    changes={"outlet": outlet.code, "period": f"{bill.period_from} to {bill.bill_date}",
+                             "slips": [slip.slip_no for slip in preview["slips"]],
+                             "slips_total": f"{bill.slips_total:.2f}", "round_off": f"{bill.round_off:.2f}",
+                             "previous_balance": f"{bill.previous_balance:.2f}"})
+    return bill
+
+
+@transaction.atomic
+def cancel_bill(bill, reason, *, user, request=None):
+    """Dealer only. The bill number is not reused; its slips go back to unbilled for the next bill."""
+    _require_dealer(user)
+    _require_outlet(user, bill.outlet)
+    bill = CreditBill.objects.select_for_update().get(pk=bill.pk)
+    if bill.is_cancelled:
+        raise ValidationError("This bill is already cancelled.")
+    if not reason.strip():
+        raise ValidationError("Give a reason for cancelling the bill.")
+    slips = list(bill.sales.values_list("slip_no", flat=True))
+    bill.sales.update(bill=None)
+    bill.status, bill.cancelled_by, bill.cancelled_at = CreditBill.Status.CANCELLED, user, timezone.now()
+    bill.cancel_reason = reason.strip()
+    bill.save()
+    AuditLog.record(AuditLog.Action.DELETE, f"Cancelled credit bill {bill.bill_no} to {bill.customer}", user=user,
+                    obj=bill, request=request, changes={"reason": bill.cancel_reason, "slips": slips,
+                                                        "amount": f"{bill.amount:.2f}"})
+    return bill
+
+
+def bill_summary(bill):
+    """Litres per fuel for the bill footer, e.g. Diesel 41.94, Petrol 13.80, Other 0.00."""
+    litres = {"HSD": ZERO, "MS": ZERO, "OTHER": ZERO}
+    for slip in bill.sales.select_related("product"):
+        key = slip.product.category if slip.product else "OTHER"
+        litres[key] += slip.litres or ZERO
+    return [("Diesel", litres["HSD"]), ("Petrol", litres["MS"]), ("Other", litres["OTHER"])]
 
 
 # --- Expenses -----------------------------------------------------------------------------
