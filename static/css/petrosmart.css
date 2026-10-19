@@ -13,12 +13,12 @@
   --bs-border-radius: var(--ps-radius);
   --bs-border-radius-sm: var(--ps-radius-sm);
   --bs-link-color: var(--ps-forest);
-  --bs-link-color-rgb: 36, 74, 60;
+  --bs-link-color-rgb: 107, 30, 46;
   --bs-link-hover-color: var(--ps-forest-hover);
-  --bs-link-hover-color-rgb: 27, 58, 47;
+  --bs-link-hover-color-rgb: 85, 23, 36;
   --bs-primary: var(--ps-forest);
-  --bs-primary-rgb: 36, 74, 60;
-  --bs-focus-ring-color: rgba(36, 74, 60, 0.35);
+  --bs-primary-rgb: 107, 30, 46;
+  --bs-focus-ring-color: rgba(107, 30, 46, 0.35);
 }
 
 body {
@@ -72,7 +72,7 @@ h1, h2, h3, h4, h5, h6 { color: var(--ps-text); font-weight: 600; letter-spacing
 }
 .btn-danger {
   --bs-btn-bg: var(--ps-danger-text); --bs-btn-border-color: var(--ps-danger-text);
-  --bs-btn-hover-bg: #6F2216; --bs-btn-hover-border-color: #6F2216;
+  --bs-btn-hover-bg: #8F1C12; --bs-btn-hover-border-color: #8F1C12;
 }
 
 /* --- Cards / surfaces --------------------------------------------------- */
@@ -105,12 +105,12 @@ h1, h2, h3, h4, h5, h6 { color: var(--ps-text); font-weight: 600; letter-spacing
   --bs-table-color: var(--ps-text);
   --bs-table-border-color: var(--ps-border);
   --bs-table-hover-bg: var(--ps-forest-soft);
-  --bs-table-striped-bg: #FBFAF6;
+  --bs-table-striped-bg: #FDF9F3;
   margin-bottom: 0;
 }
 .table > :not(caption) > * > * { padding: 0.5rem 0.75rem; }
 .table thead th {
-  background: #FAF8F3;
+  background: #FCF8F1;
   color: var(--ps-text-muted);
   font-size: var(--ps-font-size-sm);
   font-weight: 600;
@@ -131,7 +131,7 @@ h1, h2, h3, h4, h5, h6 { color: var(--ps-text); font-weight: 600; letter-spacing
 .status-success { background: var(--ps-success-bg); color: var(--ps-success-text); border-color: var(--ps-success-border); }
 .status-danger  { background: var(--ps-danger-bg);  color: var(--ps-danger-text);  border-color: var(--ps-danger-border); }
 .status-warning { background: var(--ps-warning-bg); color: var(--ps-warning-text); border-color: var(--ps-warning-border); }
-.status-neutral { background: #F1EEE7; color: var(--ps-text-muted); border-color: var(--ps-border); }
+.status-neutral { background: #F3EDE4; color: var(--ps-text-muted); border-color: var(--ps-border); }
 
 .alert { border-radius: var(--ps-radius); display: flex; gap: 0.6rem; align-items: flex-start; }
 .alert .bi { font-size: 1.1rem; line-height: 1.3; }
@@ -168,7 +168,7 @@ h1, h2, h3, h4, h5, h6 { color: var(--ps-text); font-weight: 600; letter-spacing
 .sidebar-business .meta { font-size: 0.75rem; color: var(--ps-text-on-dark-muted); }
 .sidebar-section {
   padding: 1rem 1.25rem 0.35rem; font-size: 0.75rem; font-weight: 700;
-  letter-spacing: 0.08em; text-transform: uppercase; color: #F2C46D; /* light amber: 6:1 on the sidebar */
+  letter-spacing: 0.08em; text-transform: uppercase; color: #F2C46D; /* light gold: 7:1 on the maroon sidebar */
 }
 .sidebar-nav .nav-link {
   display: flex; align-items: center; gap: 0.7rem;
@@ -206,7 +206,7 @@ h1, h2, h3, h4, h5, h6 { color: var(--ps-text); font-weight: 600; letter-spacing
   position: sticky; top: 0; z-index: 1020;
   display: flex; align-items: center; gap: 0.75rem;
   min-height: 60px; padding: 0.6rem 1.5rem;
-  background: rgba(247, 245, 239, 0.96);
+  background: rgba(251, 247, 240, 0.96);
   border-bottom: 1px solid var(--ps-border);
 }
 .app-content { padding: 1.5rem; max-width: 1400px; }
@@ -255,10 +255,10 @@ h1, h2, h3, h4, h5, h6 { color: var(--ps-text); font-weight: 600; letter-spacing
 .form-card { max-width: 860px; }
 .form-actions {
   display: flex; justify-content: flex-end; gap: 0.5rem;
-  background: #FAF8F3; border-top-color: var(--ps-border); padding: 0.8rem 1.1rem;
+  background: #FCF8F1; border-top-color: var(--ps-border); padding: 0.8rem 1.1rem;
 }
 .check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.35rem 1rem; }
-.card-footer { background: #FAF8F3; border-top-color: var(--ps-border); }
+.card-footer { background: #FCF8F1; border-top-color: var(--ps-border); }
 
 /* --- Fuel product tags (text label + colour, never colour alone) ------- */
 .fuel-tag {
@@ -266,8 +266,8 @@ h1, h2, h3, h4, h5, h6 { color: var(--ps-text); font-weight: 600; letter-spacing
   padding: 0.12rem 0.45rem; border-radius: var(--ps-radius-sm);
   font-size: var(--ps-font-size-sm); font-weight: 600; border: 1px solid transparent;
 }
-.fuel-ms  { background: var(--ps-forest-soft); color: var(--ps-fuel-ms); border-color: var(--ps-info-border); }
-.fuel-hsd { background: var(--ps-amber-soft); color: var(--ps-warning-text); border-color: var(--ps-warning-border); }
+.fuel-ms  { background: var(--ps-fuel-ms-bg); color: var(--ps-fuel-ms); border-color: var(--ps-fuel-ms-border); }
+.fuel-hsd { background: var(--ps-fuel-hsd-bg); color: var(--ps-fuel-hsd); border-color: var(--ps-fuel-hsd-border); }
 
 .price-history { border-top: 1px solid var(--ps-border); }
 .price-history summary { padding: 0.65rem 1.1rem; cursor: pointer; color: var(--ps-text-muted); font-size: var(--ps-font-size-sm); font-weight: 500; }
@@ -276,9 +276,9 @@ h1, h2, h3, h4, h5, h6 { color: var(--ps-text); font-weight: 600; letter-spacing
 .entry-table .entry-col { min-width: 9.5rem; }
 .entry-table .entry-col .form-control { text-align: right; font-variant-numeric: tabular-nums; }
 .entry-table .entry-row > * { border-bottom-width: 0; }
-.entry-table .entry-extra td { background: #FCFBF8; padding-top: 0.6rem; padding-bottom: 0.8rem; }
+.entry-table .entry-extra td { background: #FDFAF5; padding-top: 0.6rem; padding-bottom: 0.8rem; }
 .entry-table .entry-row.has-error > * { background: var(--ps-danger-bg); }
-.table tfoot th, .table tfoot td { background: #FAF8F3; font-weight: 600; }
+.table tfoot th, .table tfoot td { background: #FCF8F1; font-weight: 600; }
 .table tr.subtotal th, .table tr.subtotal td { border-top: 1px solid var(--ps-border-strong); }
 .filter-bar .mb-3 { margin-bottom: 0 !important; }
 .correction { padding: 1rem 1.1rem; border-top: 1px solid var(--ps-border); }
@@ -300,7 +300,7 @@ h1, h2, h3, h4, h5, h6 { color: var(--ps-text); font-weight: 600; letter-spacing
 .payment-summary strong { font-variant-numeric: tabular-nums; }
 .audit-changes { white-space: pre-wrap; font-size: 0.75rem; max-width: 32rem; margin: 0.3rem 0 0; color: var(--ps-text-muted); }
 .report-link { color: var(--ps-text); text-decoration: none; }
-.report-link:hover { border-color: var(--ps-forest); background: #FCFBF8; }
+.report-link:hover { border-color: var(--ps-forest); background: #FDFAF5; }
 .report-table td, .report-table th { font-size: var(--ps-font-size-sm); }
 
 /* --- Shift Card --------------------------------------------------------- */
@@ -331,7 +331,7 @@ h1, h2, h3, h4, h5, h6 { color: var(--ps-text); font-weight: 600; letter-spacing
 .sc-table .entry-col-sm { min-width: 6.5rem; }
 .sc-table .entry-col .form-control { text-align: right; font-variant-numeric: tabular-nums; }
 .sc-table .entry-row > * { border-bottom-width: 0; }
-.sc-table .entry-extra td { background: #FCFBF8; }
+.sc-table .entry-extra td { background: #FDFAF5; }
 .sc-table .entry-row.has-error > * { background: var(--ps-danger-bg); }
 .sc-help { padding: 0.6rem 1rem; font-size: var(--ps-font-size-sm); color: var(--ps-text-muted); border-top: 1px solid var(--ps-border); }
 .sc-box > .sc-help { padding: 0.6rem 0 0; }
@@ -418,7 +418,7 @@ h1, h2, h3, h4, h5, h6 { color: var(--ps-text); font-weight: 600; letter-spacing
 .pf-table .pf-tank .form-select { font-size: var(--ps-font-size-sm); }
 .pf-table tbody.has-error > tr:first-child { box-shadow: inset 3px 0 0 var(--ps-danger-text); }
 .pf-table .pf-extra td { background: var(--ps-amber-soft); }
-.pf-table tfoot th, .pf-table tfoot td { background: #FAF8F3; }
+.pf-table tfoot th, .pf-table tfoot td { background: #FCF8F1; }
 .pf-icon { padding: 0.15rem 0.35rem; border: 0; background: transparent; font-size: 1.05rem; }
 .pf-delete { color: var(--ps-danger-text); }
 .pf-info { color: var(--ps-forest); }
