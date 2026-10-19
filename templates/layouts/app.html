@@ -3,13 +3,14 @@
 {% block body %}
 <a class="visually-hidden-focusable position-absolute top-0 start-0 m-2 btn btn-primary" href="#main">Skip to content</a>
 
-<aside class="app-sidebar offcanvas-lg offcanvas-start" tabindex="-1" id="sidebar" aria-label="Main navigation">
+{# Full menu: slides up from the bottom when "Menu" is pressed in the bottom bar. #}
+<aside class="app-sidebar offcanvas offcanvas-bottom" tabindex="-1" id="sidebar" aria-label="Main navigation">
   <div class="d-flex align-items-center justify-content-between">
     <a class="app-brand" href="{% url 'core:home' %}">
       <span class="app-brand-mark"><i class="bi bi-fuel-pump" aria-hidden="true"></i></span>
       PetroSmart
     </a>
-    <button type="button" class="btn-close btn-close-white d-lg-none me-3" data-bs-dismiss="offcanvas" data-bs-target="#sidebar" aria-label="Close menu"></button>
+    <button type="button" class="btn-close btn-close-white me-3" data-bs-dismiss="offcanvas" data-bs-target="#sidebar" aria-label="Close menu"></button>
   </div>
 
   {% if business %}
@@ -115,9 +116,10 @@
 
 <div class="app-main">
   <header class="app-topbar">
-    <button class="btn btn-outline-secondary btn-sm d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#sidebar" aria-controls="sidebar" aria-label="Open menu">
-      <i class="bi bi-list" aria-hidden="true"></i>
-    </button>
+    <a class="topbar-brand" href="{% url 'core:home' %}" aria-label="PetroSmart overview">
+      <span class="app-brand-mark"><i class="bi bi-fuel-pump" aria-hidden="true"></i></span>
+      <span class="d-none d-sm-inline">PetroSmart</span>
+    </a>
     <div class="flex-grow-1 small text-muted text-truncate">{% block breadcrumb %}{% endblock %}</div>
 
     <div class="dropdown">
@@ -150,4 +152,33 @@
     {% block content %}{% endblock %}
   </main>
 </div>
+
+{# Bottom bar on every screen: the main pages, and "Menu" for everything else. #}
+{% with url_name=request.resolver_match.view_name namespace=request.resolver_match.namespace page=request.resolver_match.url_name %}
+<nav class="app-bottombar" aria-label="Main pages">
+  <a class="bottombar-link {% if url_name == 'core:home' %}active{% endif %}" href="{% url 'core:home' %}" {% if url_name == 'core:home' %}aria-current="page"{% endif %}>
+    <i class="bi bi-grid-1x2" aria-hidden="true"></i><span>Overview</span>
+  </a>
+  {% if business %}
+    <a class="bottombar-link {% if namespace == 'sales' and page != 'summary' %}active{% endif %}" href="{% url 'sales:sheet_list' %}">
+      <i class="bi bi-journal-text" aria-hidden="true"></i><span>Shift cards</span>
+    </a>
+    <a class="bottombar-link {% if namespace == 'stock' and 'receipt' not in page %}active{% endif %}" href="{% url 'stock:sheet_list' %}">
+      <i class="bi bi-database" aria-hidden="true"></i><span>Tank stock</span>
+    </a>
+    <a class="bottombar-link bottombar-wide {% if namespace == 'purchases' and 'supplier' not in page %}active{% endif %}" href="{% url 'purchases:purchase_list' %}">
+      <i class="bi bi-receipt" aria-hidden="true"></i><span>Purchases</span>
+    </a>
+    <a class="bottombar-link {% if 'finance:customer' in url_name or 'finance:payment' in url_name or 'finance:bill' in url_name %}active{% endif %}" href="{% url 'finance:customer_list' %}">
+      <i class="bi bi-person-vcard" aria-hidden="true"></i><span>Credit</span>
+    </a>
+    <a class="bottombar-link bottombar-wide {% if namespace == 'reports' %}active{% endif %}" href="{% url 'reports:index' %}">
+      <i class="bi bi-file-earmark-text" aria-hidden="true"></i><span>Reports</span>
+    </a>
+  {% endif %}
+  <button class="bottombar-link" type="button" data-bs-toggle="offcanvas" data-bs-target="#sidebar" aria-controls="sidebar">
+    <i class="bi bi-list" aria-hidden="true"></i><span>Menu</span>
+  </button>
+</nav>
+{% endwith %}
 {% endblock %}
